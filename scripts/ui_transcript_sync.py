@@ -36,7 +36,8 @@ MAX_ARG_CHUNK = 2_000
 MAX_SYNC_BYTES = 4 * 1024 * 1024
 MAX_SYNC_LINES = 2000
 MAX_PENDING_CALLS = 256
-_FRAC_RE = re.compile(r"(\.\d{6})\d+")
+_FRAC_RE = re.compile(r"\.(\d+)")
+_SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
 def safe_int(value: object, default: int = 0) -> int:
@@ -56,8 +57,11 @@ def parse_timestamp_ms(raw: str | int | float | None) -> int:
         return int(raw * 1000) if raw < 1e11 else int(raw)
     if isinstance(raw, str) and raw.strip():
         try:
-            # Truncate >6 fractional digits (Go RFC3339Nano) for Python 3.9 compatibility.
-            iso = _FRAC_RE.sub(r"\1", raw.strip()).replace("Z", "+00:00")
+            # Normalize 1..9 fractional digits (Go RFC3339Nano) to exactly 6 for Python 3.9/3.10.
+            def _norm_frac(match: re.Match[str]) -> str:
+                return "." + (match.group(1) + "000000")[:6]
+
+            iso = _FRAC_RE.sub(_norm_frac, raw.strip(), count=1).replace("Z", "+00:00")
             return int(dt.datetime.fromisoformat(iso).timestamp() * 1000)
         except ValueError as exc:
             sys.stderr.write(f"[steak-agy] parse_timestamp_ms fallback for {raw!r}: {exc}\n")
@@ -352,9 +356,17 @@ def sync_transcript(
             }
         else:
             st = os.lstat(ui_file)
-            owned = (
-                state.get("fileDev") == st.st_dev and state.get("fileIno") == st.st_ino
-            ) or bool(prev_conv)
+            owned = state.get("fileDev") == st.st_dev and state.get("fileIno") == st.st_ino
+            if not owned and prev_conv:
+                try:
+                    with open(ui_file, "r", encoding="utf-8") as h:
+                        hdr = json.loads(h.readline())
+                    if isinstance(hdr, dict) and hdr.get("type") == "session" and hdr.get("id") == ui_session_id:
+                        owned = True
+                        state["fileDev"] = st.st_dev
+                        state["fileIno"] = st.st_ino
+                except (OSError, ValueError):
+                    owned = False
             if not owned:
                 sys.stderr.write(f"[steak-agy] refused to append to unowned transcript {ui_file}\n")
                 return False
@@ -375,8 +387,6 @@ def sync_transcript(
                     "pendingCalls": [],
                     "turnOpen": False,
                 }
-            state.setdefault("fileDev", st.st_dev)
-            state.setdefault("fileIno", st.st_ino)
 
         new_rows: list[dict] = []
         truncated = False
@@ -396,29 +406,51 @@ def sync_transcript(
                         if not raw:
                             break
                         if not raw.endswith(b"\n"):
-                            if len(raw) > remaining:
-                                if bytes_read == 0:
-                                    # Single line exceeds MAX_SYNC_BYTES: skip forward to its newline so sync never stalls forever.
-                                    skipped = len(raw)
-                                    found_nl = False
-                                    while True:
-                                        chunk = handle.read(65_536)
-                                        if not chunk:
-                                            break
-                                        nl = chunk.find(b"\n")
-                                        if nl != -1:
-                                            skipped += nl + 1
-                                            found_nl = True
-                                            break
-                                        skipped += len(chunk)
-                                    if found_nl:
-                                        offset += skipped
-                                        handle.seek(offset)
-                                        bytes_read = MAX_SYNC_BYTES
-                                        lines_read += 1
-                                        truncated = offset < size
+                            if len(raw) > remaining and bytes_read == 0:
+                                # Single line exceeds MAX_SYNC_BYTES: skip forward to its newline so sync never stalls forever.
+                                skipped = len(raw)
+                                found_nl = False
+                                while True:
+                                    chunk = handle.read(65_536)
+                                    if not chunk:
                                         break
-                                truncated = True
+                                    nl = chunk.find(b"\n")
+                                    if nl != -1:
+                                        skipped += nl + 1
+                                        found_nl = True
+                                        break
+                                    skipped += len(chunk)
+                                if found_nl:
+                                    offset += skipped
+                                    handle.seek(offset)
+                                    lines_read += 1
+                                    sys.stderr.write(
+                                        f"[steak-agy] OversizedTranscriptLine: skipped {skipped} byte line in {source_transcript}\n"
+                                    )
+                                    seq = safe_int(state.get("seq"), 0) + 1
+                                    state["seq"] = seq
+                                    row_id = f"omit-{seq}"
+                                    new_rows.append(
+                                        {
+                                            "type": "message",
+                                            "id": row_id,
+                                            "parentId": state.get("lastId"),
+                                            "message": {
+                                                "role": "assistant",
+                                                "content": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": f"[steak-agy: transcript line of {skipped} bytes omitted]",
+                                                    }
+                                                ],
+                                                "timestamp": int(time.time() * 1000),
+                                            },
+                                        }
+                                    )
+                                    state["lastId"] = row_id
+                                    continue
+                            # Partial or budget-exceeding trailing line; defer end-of-turn stop row.
+                            truncated = True
                             break
                         offset += len(raw)
                         bytes_read += len(raw)
@@ -461,25 +493,61 @@ def sync_transcript(
         return True
 
 
+def _ancestor_pids(max_depth: int = 16) -> list[int]:
+    pids: list[int] = []
+    ppid = os.getppid()
+    if ppid > 1:
+        pids.append(ppid)
+    current = ppid if ppid > 1 else os.getpid()
+    for _ in range(max_depth):
+        res = ut_common.run(["ps", "-o", "ppid=", "-p", str(current)], timeout=1.0)
+        if not res or res.returncode != 0 or not res.stdout.strip().isdigit():
+            break
+        parent = int(res.stdout.strip())
+        if parent <= 1 or parent in pids:
+            break
+        pids.append(parent)
+        current = parent
+    return pids
+
+
+def _resolve_notice_pid(root: Path, parent_pid: int | None) -> int | None:
+    if parent_pid is not None:
+        return parent_pid
+    by_pid = root / "usap" / "by-pid"
+    events_dir = root / "usap-events"
+    ancestors = _ancestor_pids()
+    for pid in ancestors:
+        if (by_pid / f"{pid}.json").is_file() or (events_dir / f"{pid}.jsonl").is_file():
+            return pid
+    if events_dir.is_dir() and any(events_dir.glob("*.jsonl")):
+        sys.stderr.write(
+            f"[steak-agy] UsapNoticeAncestorUnmatched: events present in {events_dir} but none match ancestors {ancestors[:6]}\n"
+        )
+    return None
+
+
 def drain_usap_notices(data_dir: Path | None = None, parent_pid: int | None = None) -> list[dict]:
-    """Drain unread USAP completion pointers scoped strictly to this session's parent PID.
+    """Drain unread USAP completion pointers scoped strictly to a matching ancestor PID.
 
     Returns structured pointer dicts (`runIds`, `at`) rather than raw worker text so
     untrusted subagent output is never elevated into a systemMessage instruction.
     """
     root = data_dir or ut_common.plugin_data_dir()
-    pid = parent_pid if parent_pid is not None else os.getppid()
+    pid = _resolve_notice_pid(root, parent_pid)
+    if pid is None:
+        return []
     event_file = root / "usap-events" / f"{pid}.jsonl"
     cursor_path = root / "usap-events" / f"{pid}.cursor.json"
     if not event_file.is_file() or event_file.is_symlink():
         return []
     notices: list[dict] = []
-    with file_lock(cursor_path.with_suffix(".lock")):
-        state = load_state(cursor_path)
-        prev_offset = safe_int(state.get("offset"), 0)
-        prev_ino = state.get("ino")
-        offset = prev_offset
-        try:
+    try:
+        with file_lock(cursor_path.with_suffix(".lock")):
+            state = load_state(cursor_path)
+            prev_offset = safe_int(state.get("offset"), 0)
+            prev_ino = state.get("ino")
+            offset = prev_offset
             st = os.lstat(event_file)
             if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
                 sys.stderr.write(f"[steak-agy] ignored unsafe USAP event file {event_file}\n")
@@ -505,12 +573,16 @@ def drain_usap_notices(data_dir: Path | None = None, parent_pid: int | None = No
                     if not isinstance(item, dict):
                         continue
                     raw_ids = item.get("runIds")
-                    run_ids = [str(r)[:64] for r in raw_ids if isinstance(r, str) and r.strip()][:16] if isinstance(raw_ids, list) else []
+                    run_ids = (
+                        [r for r in raw_ids if isinstance(r, str) and _SAFE_RUN_ID_RE.fullmatch(r)][:16]
+                        if isinstance(raw_ids, list)
+                        else []
+                    )
                     notices.append({"runIds": run_ids, "at": safe_int(item.get("at"), 0)})
             if offset != prev_offset or prev_ino != st.st_ino:
                 save_state(cursor_path, {"offset": offset, "ino": st.st_ino})
-        except OSError as exc:
-            sys.stderr.write(f"[steak-agy] USAP notice drain failed: {exc}\n")
+    except OSError as exc:
+        sys.stderr.write(f"[steak-agy] USAP notice drain failed: {exc}\n")
     return notices
 
 

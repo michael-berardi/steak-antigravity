@@ -254,6 +254,64 @@ class TestUiTranscriptSync(unittest.TestCase):
         self.assertEqual(rows[3]["message"]["role"], "toolResult")
         self.assertEqual(rows[4]["message"]["stopReason"], "stop")
 
+    def test_oversized_single_line_skips_with_placeholder_and_continues(self) -> None:
+        orig_bytes = ui_transcript_sync.MAX_SYNC_BYTES
+        try:
+            ui_transcript_sync.MAX_SYNC_BYTES = 256
+            src = self.tmp / "oversized.jsonl"
+            big = json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "A" * 600})
+            tail = json.dumps({"step_index": 1, "type": "USER_INPUT", "created_at": "2026-11-25T01:00:00.5Z", "content": "after big"})
+            src.write_text(big + "\n" + tail + "\n")
+            ui_file = self.ui_dir / f"{self.session_id}.jsonl"
+            ok = ui_transcript_sync.sync_transcript(
+                ui_file=ui_file,
+                ui_session_id=self.session_id,
+                conversation_id="conv-big",
+                source_transcript=src,
+                cwd=str(self.tmp),
+                event_name="post-tool",
+                data_dir=self.data_dir,
+            )
+            self.assertTrue(ok)
+            rows = [json.loads(l) for l in ui_file.read_text().splitlines()]
+            self.assertTrue(any("omitted" in str(r) for r in rows))
+            self.assertTrue(any(r.get("message", {}).get("content") == "after big" for r in rows))
+        finally:
+            ui_transcript_sync.MAX_SYNC_BYTES = orig_bytes
+
+    def test_ancestor_walk_resolves_usap_notices_across_shell_wrapper(self) -> None:
+        events = self.data_dir / "usap-events"
+        events.mkdir(mode=0o700)
+        # Key events on our current process PID; a child sh -> exec python subprocess
+        # discovers it via ppid, and _resolve_notice_pid also walks higher ancestors.
+        (events / f"{os.getpid()}.jsonl").write_text(
+            json.dumps({"runIds": ["run-anc-1", "bad\nid"], "at": 123}) + "\n"
+        )
+        res = subprocess.run(
+            [
+                "/bin/sh",
+                "-c",
+                f'exec "{sys.executable}" -I -B -c "import json, sys; from pathlib import Path; sys.path.insert(0, {str(ROOT / "scripts")!r}); import ui_transcript_sync as m; print(json.dumps(m.drain_usap_notices(Path({str(self.data_dir)!r}))))"',
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        drained = json.loads(res.stdout)
+        self.assertEqual(len(drained), 1)
+        self.assertEqual(drained[0]["runIds"], ["run-anc-1"])
+
+        # Also verify multi-hop ancestor resolution directly (e.g. non-exec sh fork).
+        by_pid = self.data_dir / "usap" / "by-pid"
+        by_pid.mkdir(parents=True, mode=0o700)
+        (by_pid / "77777.json").write_text("{}")
+        orig_anc = ui_transcript_sync._ancestor_pids
+        try:
+            ui_transcript_sync._ancestor_pids = lambda max_depth=16: [99999, 88888, 77777]
+            self.assertEqual(ui_transcript_sync._resolve_notice_pid(self.data_dir, None), 77777)
+        finally:
+            ui_transcript_sync._ancestor_pids = orig_anc
+
     def test_stop_does_not_emit_premature_stop_when_line_cap_hit(self) -> None:
         src = self.tmp / "many.jsonl"
         orig_cap = ui_transcript_sync.MAX_SYNC_LINES
@@ -422,10 +480,13 @@ class TestOwnedPathsGuard(unittest.TestCase):
             )
             self.assertEqual(json.loads(res4.stdout)["decision"], "deny")
 
-    def test_hooks_resolve_via_plugin_root_even_from_hostile_cwd(self) -> None:
+    def test_hooks_resolve_via_plugin_root_and_fail_closed_when_unset(self) -> None:
         with tempfile.TemporaryDirectory() as hostile:
             (Path(hostile) / "scripts").mkdir()
-            (Path(hostile) / "scripts" / "owned_paths_guard.py").write_text("raise SystemExit(99)\n")
+            stub_marker = Path(hostile) / "pwned.txt"
+            (Path(hostile) / "scripts" / "owned_paths_guard.py").write_text(
+                f"from pathlib import Path; Path({str(stub_marker)!r}).write_text('pwned'); raise SystemExit(99)\n"
+            )
             hooks = json.loads((ROOT / "hooks.json").read_text())
             cmd = hooks["steak-agy-guards"]["PreToolUse"][0]["hooks"][0]["command"]
             env = {**os.environ, "PLUGIN_ROOT": str(ROOT), "STEAK_AGY_OWNED_PATHS": f"{hostile}/src"}
@@ -440,6 +501,20 @@ class TestOwnedPathsGuard(unittest.TestCase):
             )
             self.assertEqual(json.loads(res.stdout)["decision"], "deny")
 
+            # With PLUGIN_ROOT unset in a hostile cwd, hook MUST fail closed and NEVER execute the repo stub.
+            env_unset = {k: v for k, v in env.items() if k != "PLUGIN_ROOT"}
+            res_fail = subprocess.run(
+                ["/bin/sh", "-c", cmd],
+                cwd=hostile,
+                input="{}",
+                text=True,
+                capture_output=True,
+                env=env_unset,
+                check=False,
+            )
+            self.assertNotEqual(res_fail.returncode, 0)
+            self.assertFalse(stub_marker.exists())
+
 
 class TestVerifyTrustGate(unittest.TestCase):
     def test_verify_skips_untrusted_repo_and_runs_when_explicitly_trusted(self) -> None:
@@ -450,8 +525,9 @@ class TestVerifyTrustGate(unittest.TestCase):
             (cfg_dir / "config.json").write_text(json.dumps({"verify": {"command": f"echo ok > {marker}", "timeoutMs": 999999}}))
             payload = json.dumps({"cwd": td, "conversationId": "c1", "toolCall": {"name": "write_file", "args": {"Path": f"{td}/a.ts"}}})
 
-            # Untrusted: must NOT execute repo command.
+            # Untrusted (with isolated HOME so real user allowlist is never read): must NOT execute repo command.
             env_untrusted = {k: v for k, v in os.environ.items() if k != "STEAK_AGY_ALLOW_VERIFY"}
+            env_untrusted["HOME"] = str(Path(td) / "home")
             env_untrusted["PLUGIN_DATA"] = str(Path(td) / "pdata")
             res1 = subprocess.run(
                 [sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")],

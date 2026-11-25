@@ -167,9 +167,9 @@ def main() -> None:
     ok = child.returncode == 0 and not timed_out
     state["consecutive"] = 0 if ok else state["consecutive"] + 1
     state["lastRunMs"] = int(time.time() * 1000)
-    tmp = state_dir / f".{conv_id}.{os.getpid()}.tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    tmp = state_dir / f".{conv_id}.{os.getpid()}.{time.time_ns()}.tmp"
     try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(state, handle)
         os.replace(tmp, state_path)

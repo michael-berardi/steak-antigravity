@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/session_start.py\"",
+        "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/session_start.py\"",
         "timeout": 15
       }
     ]
@@ -12,14 +12,14 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/ui_transcript_sync.py\" --event pre-invocation",
+        "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/ui_transcript_sync.py\" --event pre-invocation",
         "timeout": 10
       }
     ],
     "PostInvocation": [
       {
         "type": "command",
-        "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/ui_transcript_sync.py\" --event post-invocation",
+        "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/ui_transcript_sync.py\" --event post-invocation",
         "timeout": 10
       }
     ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/owned_paths_guard.py\"",
+            "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/owned_paths_guard.py\"",
             "timeout": 5
           }
         ]
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/delegation_guard.py\"",
+            "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/delegation_guard.py\"",
             "timeout": 5
           }
         ]
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/verify_after_edit.py\"",
+            "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/verify_after_edit.py\"",
             "timeout": 120
           }
         ]
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/ui_transcript_sync.py\" --event post-tool",
+            "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/ui_transcript_sync.py\" --event post-tool",
             "timeout": 10
           }
         ]
@@ -76,7 +76,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python3 -I -B \"${PLUGIN_ROOT:-.}/scripts/stop_hook.py\"",
+        "command": "python3 -I -B \"${PLUGIN_ROOT:?steak-agy: PLUGIN_ROOT unset}/scripts/stop_hook.py\"",
         "timeout": 15
       }
     ]
