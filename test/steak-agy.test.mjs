@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { formatRunView, withOwnerDefault, withRunView } from "../lib/usap-bridge.mjs";
+import { formatRunView, isRegularOwnedFile, resolveBridgeCwd, sweepStaleBridgeFiles, withOwnerDefault, withRunView } from "../lib/usap-bridge.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SKIP = new Set([".git", "node_modules", "__pycache__"]);
@@ -58,7 +58,7 @@ describe("steak-agy manifest & contracts", () => {
 });
 
 describe("usap-bridge helpers", () => {
-  it("applies owner defaults from routing.json without hardcoding models", async () => {
+  it("preserves implicit dispatches when routing.json is valid so Steak Pi resolves chains natively", async () => {
     const dir = mkdtempSync(join(tmpdir(), "steak-agy-route-"));
     try {
       const routingFile = join(dir, "routing.json");
@@ -70,14 +70,79 @@ describe("usap-bridge helpers", () => {
         })
       );
       const workerRes = await withOwnerDefault({ tasks: [{ task: "t1" }] }, routingFile);
-      assert.equal(workerRes.args.profile, "custom/worker-a");
+      assert.equal(workerRes.args.profile, undefined);
+      assert.equal(workerRes.args.model, undefined);
 
       const revRes = await withOwnerDefault({ tasks: [{ task: "r1", role: "reviewer" }] }, routingFile);
-      assert.equal(revRes.args.model, "custom/reviewer-b");
+      assert.equal(revRes.args.model, undefined);
+      assert.equal(revRes.args.profile, undefined);
 
       const explicit = await withOwnerDefault({ model: "custom/explicit", tasks: [{ task: "t2" }] }, routingFile);
       assert.equal(explicit.args.model, "custom/explicit");
       assert.equal(explicit.note, undefined);
+
+      const missing = join(dir, "missing.json");
+      await assert.rejects(() => withOwnerDefault({ tasks: [{ task: "t3" }] }, missing), /unreadable/);
+
+      // textWorkerChain-only routing is valid
+      const chainOnly = join(dir, "chain-only.json");
+      writeFileSync(chainOnly, JSON.stringify({ textWorkerChain: ["custom/worker-chain"] }));
+      const chainRes = await withOwnerDefault({ tasks: [{ task: "t4" }] }, chainOnly);
+      assert.equal(chainRes.args.model, undefined);
+      assert.equal(chainRes.args.profile, undefined);
+
+      // Invalid routing configs (null, empty chain, empty object) fail closed
+      for (const bad of ["null", "[]", "{}", JSON.stringify({ textWorkerChain: [""] })]) {
+        const badPath = join(dir, "bad.json");
+        writeFileSync(badPath, bad);
+        await assert.rejects(() => withOwnerDefault({ tasks: [{ task: "t5" }] }, badPath), /invalid|missing/);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves workspace cwd from STEAK_AGY_WORKSPACE_CWD, rejects symlinks, and sweeps dead-pid files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "steak-agy-cwd-"));
+    try {
+      assert.equal(resolveBridgeCwd({ STEAK_AGY_WORKSPACE_CWD: dir }, "/fallback"), realpathSync(dir));
+      assert.equal(resolveBridgeCwd({}, "/fallback"), "/fallback");
+      const notADir = join(dir, "plain.txt");
+      writeFileSync(notADir, "hi");
+      assert.equal(resolveBridgeCwd({ STEAK_AGY_WORKSPACE_CWD: notADir }, "/fallback"), "/fallback");
+
+      // isRegularOwnedFile accepts owned regular files and rejects symlinks
+      assert.equal(await isRegularOwnedFile(notADir), true);
+      const linkPath = join(dir, "link.txt");
+      symlinkSync(notADir, linkPath);
+      assert.equal(await isRegularOwnedFile(linkPath), false);
+
+      const byPid = join(dir, "usap", "by-pid");
+      const events = join(dir, "usap-events");
+      await import("node:fs/promises").then(async (fs) => {
+        await fs.mkdir(byPid, { recursive: true });
+        await fs.mkdir(events, { recursive: true });
+        const deadJson = join(byPid, "99999999.json");
+        const deadTmp = join(byPid, "12345.json.99999998.tmp");
+        const liveJson = join(byPid, `${process.pid}.json`);
+        const linkJson = join(byPid, "99999997.json");
+        const recentEvent = join(events, "99999996.jsonl");
+        const oldEvent = join(events, "99999995.jsonl");
+        await fs.writeFile(deadJson, "{}");
+        await fs.writeFile(deadTmp, "{}");
+        await fs.writeFile(liveJson, "{}");
+        symlinkSync(liveJson, linkJson);
+        await fs.writeFile(recentEvent, "{}\n");
+        await fs.writeFile(oldEvent, "{}\n");
+        const now = Date.now();
+        const oldSec = (now - 48 * 3600 * 1000) / 1000;
+        utimesSync(oldEvent, oldSec, oldSec);
+        const removed = await sweepStaleBridgeFiles(dir, now, 24 * 3600 * 1000);
+        assert.equal(removed, 3); // deadJson + deadTmp + oldEvent
+        assert.equal(statSync(liveJson).isFile(), true);
+        assert.equal(statSync(recentEvent).isFile(), true);
+        assert.equal(await isRegularOwnedFile(linkJson), false);
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

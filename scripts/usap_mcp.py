@@ -14,34 +14,56 @@ sys.path.insert(0, str(ROOT / "lib"))
 import ut_common  # noqa: E402
 
 
-def resolve_session_id(data_dir: Path) -> str:
+def resolve_session_id() -> str:
     env_id = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
     if ut_common.UUID_RE.fullmatch(env_id):
         return env_id.lower()
-    # Stable per-pane session UUID when running inside UltraTerm tmux.
+    # Stable per-pane session UUID when running inside UltraTerm tmux: include
+    # pane ID / terminal ID so sibling panes in a matrix never collide on one
+    # Pi host session file.
     tmux_session = os.environ.get("ULTRATERM_TMUX_SESSION", "").strip()
-    if tmux_session:
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"steak-agy:{tmux_session}"))
-    state_file = data_dir / "usap-default-session-id"
-    try:
-        saved = state_file.read_text().strip()
-        if ut_common.UUID_RE.fullmatch(saved):
-            return saved.lower()
-    except OSError:
-        pass
-    fresh = str(uuid.uuid4())
-    data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    state_file.write_text(fresh + "\n")
-    return fresh
+    pane = ut_common.resolve_pane() or ""
+    term_id = os.environ.get("ULTRATERM_TERMINAL_ID", "").strip()
+    if tmux_session and (pane or term_id):
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"steak-agy:{tmux_session}:{pane}:{term_id}"))
+    # Outside UltraTerm (or without a verified pane/terminal), isolate each
+    # MCP bridge process with a fresh UUID instead of sharing one file.
+    return str(uuid.uuid4())
+
+
+def resolve_workspace_cwd() -> str | None:
+    for var in ("STEAK_AGY_WORKSPACE_CWD", "ULTRATERM_WORKSPACE_CWD"):
+        val = os.environ.get(var, "").strip()
+        if val and os.path.isdir(val):
+            return os.path.realpath(val)
+    pane = ut_common.resolve_pane()
+    if pane:
+        res = ut_common.run(ut_common.tmux_command("display-message", "-p", "-t", pane, "#{pane_current_path}"))
+        if res and res.returncode == 0:
+            candidate = res.stdout.strip()
+            if candidate and os.path.isdir(candidate):
+                return os.path.realpath(candidate)
+    cwd = os.getcwd()
+    # Antigravity launches plugin MCP servers with cwd set to the plugin root.
+    # Never silently widen workspace scope to $HOME; fail closed when no workspace cwd is known.
+    if os.path.realpath(cwd) == os.path.realpath(str(ROOT)):
+        return None
+    return os.path.realpath(cwd) if os.path.isdir(cwd) else None
 
 
 def main() -> None:
     data_dir = ut_common.plugin_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    node = shutil.which("node")
+    ok_dir, dir_reason = ut_common.verify_private_dir(data_dir)
+    if not ok_dir:
+        sys.stderr.write(f"[steak-agy-usap] UnsafePluginDataDir: {dir_reason}\n")
+        sys.exit(1)
+    raw_node = shutil.which("node")
+    node = os.path.realpath(raw_node) if raw_node else None
     sdk = ut_common.pi_sdk_entry()
     steak = ut_common.steak_pi_root()
     unavailable = ROOT / "lib/mcp-unavailable.mjs"
+    workspace_cwd = resolve_workspace_cwd()
 
     reason = (
         "node is not on PATH"
@@ -50,15 +72,26 @@ def main() -> None:
         if not sdk
         else "Steak Pi package not found"
         if not steak
+        else "WorkspaceCwdUnknown: no workspace cwd available (set STEAK_AGY_WORKSPACE_CWD or run inside an UltraTerm pane)"
+        if not workspace_cwd
         else None
     )
     if reason:
-        os.execv(node or "/usr/bin/false", [node or "false", str(unavailable), reason])
+        sys.stderr.write(f"[steak-agy-usap] unavailable: {reason}\n")
+        if node:
+            os.execv(node, [node, str(unavailable), reason])
+        sys.exit(1)
 
     bridge = ROOT / "lib/usap-bridge.mjs"
-    session_id = resolve_session_id(data_dir)
+    session_id = resolve_session_id()
     parent_model = os.environ.get("ULTRATERM_HARNESS_PROFILE") or "antigravity"
     os.environ["STEAK_AGY_PARENT_PID"] = str(os.getppid())
+    os.environ["STEAK_AGY_WORKSPACE_CWD"] = workspace_cwd
+    try:
+        os.chdir(workspace_cwd)
+    except OSError as exc:
+        sys.stderr.write(f"[steak-agy-usap] WorkspaceChdirFailed: {exc}\n")
+        sys.exit(1)
     os.execv(
         node,
         [
