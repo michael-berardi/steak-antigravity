@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4 - 2026-11-25
+
+- Add `scripts/antigravity_statusline.py`, an official Antigravity CLI `statusLine`
+  snapshot writer that records non-PII Gemini 5-hour and weekly quota percentages
+  and reset timestamps to `~/.ultraterm/antigravity/usage.json` (`0600`) without
+  printing extra lines or touching Google credentials.
+- Wire `statusLine` (`stack_with_default: true`) safely in `steak-antigravity install`
+  (preserving existing permissions and third-party status lines), clean up on
+  `uninstall`, and report status in `doctor`.
+
 ## 0.1.3 - 2026-11-25
 
 - Drop inherited operator `TMUX` and `TMUX_PANE` environment variables and prepend

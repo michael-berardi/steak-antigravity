@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
+import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -14,6 +16,90 @@ sys.path.insert(0, str(ROOT / "lib"))
 import ut_common  # noqa: E402
 
 GEMINI_CONFIG = Path.home() / ".gemini/config"
+AGY_SETTINGS = Path.home() / ".gemini/antigravity-cli/settings.json"
+STATUSLINE_SCRIPT_NAME = "antigravity_statusline.py"
+
+
+def statusline_command() -> str:
+    return f"python3 -I -B {shlex.quote(str(ROOT / 'scripts' / STATUSLINE_SCRIPT_NAME))}"
+
+
+def _write_private_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    tmp = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def configure_statusline(settings_path: Path = AGY_SETTINGS) -> bool:
+    """Wire Antigravity's official statusLine command unless a third-party one is set."""
+    data: dict = {}
+    if settings_path.exists() or settings_path.is_symlink():
+        if settings_path.is_symlink() or not settings_path.is_file():
+            return False
+        try:
+            parsed = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(parsed, dict):
+            return False
+        data = parsed
+    if "statusLine" in data:
+        existing = data["statusLine"]
+        if not isinstance(existing, dict):
+            return False
+        cmd = str(existing.get("command") or "")
+        if cmd and STATUSLINE_SCRIPT_NAME not in cmd:
+            return False
+    data["statusLine"] = {
+        "command": statusline_command(),
+        "stack_with_default": True,
+    }
+    try:
+        _write_private_json(settings_path, data)
+    except OSError:
+        return False
+    return True
+
+
+def remove_statusline(settings_path: Path = AGY_SETTINGS) -> bool:
+    if not settings_path.is_file():
+        return False
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    existing = data.get("statusLine")
+    if isinstance(existing, dict) and STATUSLINE_SCRIPT_NAME in str(existing.get("command") or ""):
+        del data["statusLine"]
+        _write_private_json(settings_path, data)
+        return True
+    return False
+
+
+def statusline_configured(settings_path: Path = AGY_SETTINGS) -> bool:
+    if not settings_path.is_file():
+        return False
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    existing = data.get("statusLine") if isinstance(data, dict) else None
+    return isinstance(existing, dict) and STATUSLINE_SCRIPT_NAME in str(existing.get("command") or "")
 
 
 def version() -> str:
@@ -73,6 +159,9 @@ def cmd_install() -> int:
     if ut_common.SHARED_SKILLS.is_dir():
         upsert_json_entry(GEMINI_CONFIG / "skills.json", "~/.config/agents/skills")
 
+    # Wire official Antigravity statusLine snapshot writer (non-destructive).
+    configure_statusline()
+
     # Install CLI shim in ~/.local/bin.
     local_bin = Path.home() / ".local/bin"
     local_bin.mkdir(parents=True, exist_ok=True)
@@ -100,6 +189,7 @@ def cmd_uninstall() -> int:
             plugins_json.write_text(json.dumps(data, indent=2) + "\n")
         except (OSError, ValueError):
             pass
+    remove_statusline()
     link = Path.home() / ".local/bin/steak-antigravity"
     if link.is_symlink():
         link.unlink()
@@ -121,6 +211,8 @@ def cmd_doctor() -> int:
         "sharedSkillsDir": ut_common.SHARED_SKILLS.is_dir(),
         "pluginsJsonConfigured": (GEMINI_CONFIG / "plugins.json").is_file(),
         "skillsJsonConfigured": (GEMINI_CONFIG / "skills.json").is_file(),
+        "statusLineConfigured": statusline_configured(),
+        "usageSnapshotPresent": (Path.home() / ".ultraterm/antigravity/usage.json").is_file(),
         "uiTranscriptEnv": bool(os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE")),
         "identity": ut_common.terminal_identity(),
     }

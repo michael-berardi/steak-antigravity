@@ -551,5 +551,123 @@ class TestVerifyTrustGate(unittest.TestCase):
         self.assertIn('".ultraterm" / "bin"', source)
 
 
+class TestAntigravityStatuslineSnapshot(unittest.TestCase):
+    def test_writes_non_pii_snapshot_and_prints_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "antigravity" / "usage.json"
+            payload = {
+                "email": "private-user@example.com",
+                "cwd": "/private/project",
+                "agent_state": "idle",
+                "quota": {
+                    "gemini-5h": {
+                        "remaining_fraction": 0.85,
+                        "reset_time": "2026-11-25T14:07:38Z",
+                    },
+                    "gemini-weekly": {
+                        "remaining_fraction": 0.625,
+                        "reset_time": "2026-12-02T02:38:11Z",
+                    },
+                    "3p-5h": {
+                        "remaining_fraction": 1,
+                        "reset_time": "1970-01-01T00:00:00Z",
+                    },
+                },
+            }
+            res = subprocess.run(
+                [sys.executable, "-I", "-B", str(ROOT / "scripts/antigravity_statusline.py"), "--output", str(out)],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(res.stdout, "")
+            self.assertTrue(out.is_file())
+            self.assertEqual(os.stat(out).st_mode & 0o777, 0o600)
+            self.assertEqual(os.stat(out.parent).st_mode & 0o777, 0o700)
+            raw = out.read_text(encoding="utf-8")
+            self.assertNotIn("private-user@example.com", raw)
+            self.assertNotIn("/private/project", raw)
+            snap = json.loads(raw)
+            self.assertEqual(snap["schemaVersion"], 1)
+            self.assertEqual(snap["source"], "antigravity-statusline")
+            self.assertTrue(snap["available"])
+            self.assertAlmostEqual(snap["fiveHour"]["usedPercent"], 15.0, places=3)
+            self.assertGreater(snap["fiveHour"]["resetsAt"], 1_700_000_000)
+            self.assertAlmostEqual(snap["sevenDay"]["usedPercent"], 37.5, places=3)
+            self.assertGreater(snap["sevenDay"]["resetsAt"], snap["fiveHour"]["resetsAt"])
+
+            # Authenticating payload without quota must preserve the existing snapshot.
+            auth_payload = {"agent_state": "authenticating", "model": None}
+            subprocess.run(
+                [sys.executable, "-I", "-B", str(ROOT / "scripts/antigravity_statusline.py"), "--output", str(out)],
+                input=json.dumps(auth_payload),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(out.read_text(encoding="utf-8")), snap)
+
+    def test_untouched_bucket_sets_resets_at_null_and_symlink_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "antigravity" / "usage.json"
+            payload = {
+                "quota": {
+                    "gemini-5h": {"remaining_fraction": 1.0, "reset_time": "1970-01-01T00:00:00Z"},
+                    "gemini-weekly": {"remaining_fraction": 1.0, "reset_time": "1970-01-01T00:00:00Z"},
+                }
+            }
+            subprocess.run(
+                [sys.executable, "-I", "-B", str(ROOT / "scripts/antigravity_statusline.py"), "--output", str(out)],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            snap = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(snap["fiveHour"], {"usedPercent": 0.0, "resetsAt": None})
+            self.assertEqual(snap["sevenDay"], {"usedPercent": 0.0, "resetsAt": None})
+
+            # Symlink target must be refused without modifying the link target.
+            victim = Path(td) / "victim.json"
+            victim.write_text("KEEP")
+            link = Path(td) / "antigravity" / "link.json"
+            link.symlink_to(victim)
+            subprocess.run(
+                [sys.executable, "-I", "-B", str(ROOT / "scripts/antigravity_statusline.py"), "--output", str(link)],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(victim.read_text(), "KEEP")
+
+    def test_configure_and_remove_statusline_preserve_third_party_commands(self) -> None:
+        import importlib.machinery
+        import importlib.util
+
+        loader = importlib.machinery.SourceFileLoader("steak_agy_cli", str(ROOT / "bin/steak-antigravity"))
+        spec = importlib.util.spec_from_loader("steak_agy_cli", loader)
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+
+        with tempfile.TemporaryDirectory() as td:
+            settings = Path(td) / "settings.json"
+            settings.write_text(json.dumps({"permissions": {"allow": ["read"]}}))
+            self.assertTrue(cli.configure_statusline(settings))
+            saved = json.loads(settings.read_text())
+            self.assertEqual(saved["permissions"], {"allow": ["read"]})
+            self.assertTrue(saved["statusLine"]["stack_with_default"])
+            self.assertIn("antigravity_statusline.py", saved["statusLine"]["command"])
+            self.assertTrue(cli.remove_statusline(settings))
+            self.assertNotIn("statusLine", json.loads(settings.read_text()))
+
+            # Third-party statusLine command must never be overwritten or removed.
+            settings.write_text(json.dumps({"statusLine": {"command": "echo custom"}}))
+            self.assertFalse(cli.configure_statusline(settings))
+            self.assertFalse(cli.remove_statusline(settings))
+            self.assertEqual(json.loads(settings.read_text())["statusLine"]["command"], "echo custom")
+
+
 if __name__ == "__main__":
     unittest.main()
