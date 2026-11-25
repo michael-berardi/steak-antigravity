@@ -24,10 +24,12 @@ and `skills/`).
   verified peer messages (`utp message --to N --expected-id UUID "..."`).
 - **Todo & finish guard (`ut-todo`, `Stop` hook)**: Tracks multi-step phases in
   Steak Pi's todo store and blocks premature stops while solvable items remain
-  open.
+  open, in that store or in your own latest `update_steps` plan. Mark steps
+  `done` as you finish them.
 - **Verify-after-edit (`PostToolUse` hook)**: Runs `.steak-pi/config.json`
-  `verify.command` after `write_file` / `edit_file`, debounced with bounded
-  output and clean process-group reaping.
+  `verify.command` after `write_file` / `edit_file` in trusted repos, debounced
+  with bounded output and clean process-group reaping. A failure is shown to you
+  as a system message on your next step; fix it before moving on.
 - **Owned-paths guard (`PreToolUse` hook)**: When `STEAK_ANTIGRAVITY_OWNED_PATHS` is
   set (colon-separated paths), blocks edits outside the declared scope.
 - **UI Mode transcript publisher (`ultraterm.transcript/1`)**: Incrementally

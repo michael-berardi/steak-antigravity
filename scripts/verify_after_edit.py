@@ -25,6 +25,10 @@ DEFAULT_FAIL_LIMIT = 2
 DEFAULT_TIMEOUT_MS = 90_000
 MAX_TIMEOUT_MS = 110_000
 OUTPUT_TAIL = 4_000
+# After failLimit consecutive failures verify pauses (as in Steak Pi), but only for this window,
+# so one broken stretch never disables verification for the rest of the conversation.
+FAIL_PAUSE_MS = 5 * 60_000
+MAX_PENDING_NOTES = 3
 EDIT_TOOLS = {
     "write_file",
     "edit_file",
@@ -87,6 +91,35 @@ def load_config(cwd: Path) -> dict | None:
     }
 
 
+def queue_failure_note(state_dir: Path, conv_id: str, message: str) -> None:
+    """PostToolUse output never reaches the model; queue the failure for the next PreInvocation hook."""
+    import fcntl
+
+    pending = state_dir / f"{conv_id}.pending.json"
+    lock = pending.with_suffix(".lock")
+    try:
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            notes: list = []
+            try:
+                saved = json.loads(pending.read_text())
+                if isinstance(saved, dict) and isinstance(saved.get("failures"), list):
+                    notes = [n for n in saved["failures"] if isinstance(n, str)]
+            except (OSError, ValueError):
+                pass
+            notes = (notes + [message])[-MAX_PENDING_NOTES:]
+            tmp = state_dir / f".{conv_id}.pending.{os.getpid()}.{time.time_ns()}.tmp"
+            tfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(tfd, "w", encoding="utf-8") as handle:
+                json.dump({"failures": notes}, handle)
+            os.replace(tmp, pending)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        sys.stderr.write(f"[steak-antigravity] could not queue verify failure for the agent: {exc}\n")
+
+
 def main() -> None:
     payload = ut_common.read_hook_stdin()
     tool_call = payload.get("toolCall") or {}
@@ -114,7 +147,12 @@ def main() -> None:
 
     conv_id = str(payload.get("conversationId") or "default").replace("/", "_")
     state_dir = ut_common.plugin_data_dir() / "verify"
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        sys.stderr.write(f"[steak-antigravity] verify state dir unavailable: {exc}\n")
+        print("{}")
+        return
     ok, reason = ut_common.verify_private_dir(state_dir)
     if not ok:
         sys.stderr.write(f"[steak-antigravity] verify state dir unsafe: {reason}\n")
@@ -124,14 +162,23 @@ def main() -> None:
 
     state = {"consecutive": 0, "lastRunMs": 0}
     try:
-        state.update(json.loads(state_path.read_text()))
+        saved = json.loads(state_path.read_text())
+        if isinstance(saved, dict):
+            for key in state:
+                if isinstance(saved.get(key), int) and not isinstance(saved.get(key), bool):
+                    state[key] = saved[key]
     except (OSError, ValueError):
         pass
 
     now = int(time.time() * 1000)
-    if state["consecutive"] >= config["failLimit"] or now - state["lastRunMs"] < DEBOUNCE_MS:
+    if now - state["lastRunMs"] < DEBOUNCE_MS:
         print("{}")
         return
+    if state["consecutive"] >= config["failLimit"]:
+        if now - state["lastRunMs"] < FAIL_PAUSE_MS:
+            print("{}")
+            return
+        state["consecutive"] = 0
 
     child = subprocess.Popen(
         ["/bin/bash", "--noprofile", "--norc", "-o", "pipefail", "-c", config["command"]],
@@ -184,9 +231,11 @@ def main() -> None:
         tail = output.decode("utf-8", "replace")[-OUTPUT_TAIL:].strip()
         if timed_out:
             tail = (tail + "\n" if tail else "") + f"(timed out after {config['timeoutMs']} ms)"
-        sys.stderr.write(
-            f"[steak-antigravity] verify failed ({state['consecutive']}/{config['failLimit']}): {config['command']}\n{tail}\n"
-        )
+        message = f"[steak-antigravity] verify failed ({state['consecutive']}/{config['failLimit']}): {config['command']}\n{tail}"
+        if state["consecutive"] >= config["failLimit"]:
+            message += f"\n(verify paused for {FAIL_PAUSE_MS // 60_000} minutes after {config['failLimit']} consecutive failures)"
+        sys.stderr.write(message + "\n")
+        queue_failure_note(state_dir, conv_id, message)
 
     print("{}")
 

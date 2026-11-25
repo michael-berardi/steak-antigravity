@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.5 - 2026-11-25
+
+- Finish guard now reads Antigravity's own plan (the latest `update_steps` call in the
+  conversation transcript) as well as the Steak Pi todo store, so `agy` no longer stops
+  with open native steps. Checked live: the Stop hook made `agy` finish an open step.
+- Verify-after-edit failures now reach the agent: `PostToolUse` output is discarded by
+  `agy`, so the failure is queued and injected on the next `PreInvocation`. After
+  `failLimit` consecutive failures verify pauses for 5 minutes instead of for the rest
+  of the conversation.
+- UI Mode: a nested `agy` started from a tool call no longer writes into the pane's
+  transcript (`NestedPublisherRefused`); tool results drop Antigravity's
+  `Created At:`/`Completed At:` bookkeeping lines.
+- `install` writes absolute skill paths (Antigravity rejects `~`), migrates the old `~`
+  entry, removes the stale `steak-agy_usap` MCP cache, refuses to overwrite a
+  `plugins.json`/`skills.json` it cannot parse, and writes them atomically; `uninstall`
+  removes only this checkout's entry; `doctor` reports both problems.
+- USAP bridge: non-object JSON-RPC lines get `-32600` instead of crashing the server;
+  a cancel that arrives before startup finishes is honoured and a cancelled request
+  gets no result; no progress after the final reply; shutdown never hangs on a stuck
+  start; unique temp names and sweep of leftover temp files.
+- Delegation guard only steers to USAP when `node` is available too, matching the
+  server's own startup checks.
+- Hooks no longer crash on corrupt state files; the `UsapNoticeAncestorUnmatched`
+  log line is shown only with `STEAK_ANTIGRAVITY_DEBUG=1`.
+
 ## 0.1.4 - 2026-11-25
 
 - Add `scripts/antigravity_statusline.py`, an official Antigravity CLI `statusLine`

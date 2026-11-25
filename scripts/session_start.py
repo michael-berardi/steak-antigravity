@@ -32,7 +32,7 @@ def main() -> None:
 
     ui_file_env = os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE", "").strip()
     ui_session_env = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
-    if ui_file_env and ui_session_env:
+    if ui_file_env and ui_session_env and ui_transcript_sync.publisher_is_pane_process():
         try:
             ui_transcript_sync.sync_transcript(
                 ui_file=Path(ui_file_env),
@@ -42,8 +42,8 @@ def main() -> None:
                 cwd=cwd,
                 event_name="session-start",
             )
-        except OSError:
-            pass
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            sys.stderr.write(f"[steak-antigravity] UI transcript sync failed at session start: {exc}\n")
 
     inject_steps: list[dict] = []
 

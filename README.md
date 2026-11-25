@@ -17,9 +17,9 @@ MIT. Zero runtime npm dependencies. By [Pareto Cybernetics](https://paretocybern
 | **UltraTerm UI Mode** | `scripts/ui_transcript_sync.py` | Publishes Antigravity `transcript.jsonl` incrementally to `ULTRATERM_UI_TRANSCRIPT_FILE` in `ultraterm.transcript/1` format (mode `0600`, exclusive create, atomic `/new` rotation, `stopReason: "stop"`). |
 | **Shared operator rules & skills** | `scripts/session_start.py` + `skills.json` | Injects `~/.pi/agent/AGENTS.md` on `SessionStart` and wires `~/.config/agents/skills` into Antigravity discovery. |
 | **UTP peer awareness** | `lib/ut_common.py` + `scripts/session_start.py` | Reports live tmux pane & UltraTerm terminal UUID (`utp list`) and surfaces background USAP completion notices on `PreInvocation`. |
-| **Verify-after-edit** | `scripts/verify_after_edit.py` | Runs `.steak-pi/config.json` `verify.command` after `write_file`/`edit_file` with debouncing, `failLimit`, and process-group reaping. |
+| **Verify-after-edit** | `scripts/verify_after_edit.py` | Runs `.steak-pi/config.json` `verify.command` after `write_file`/`edit_file` with debouncing, `failLimit` (then a 5-minute pause), and process-group reaping. Failures are shown to the agent on its next model call. Runs only in repos you trust (`STEAK_ANTIGRAVITY_ALLOW_VERIFY=1` or `~/.steak-antigravity/trusted-verify-repos.json`). |
 | **Owned-paths guard** | `scripts/owned_paths_guard.py` | Enforces `STEAK_ANTIGRAVITY_OWNED_PATHS` on file writes for scoped worker runs. |
-| **Finish guard** | `scripts/stop_hook.py` | Checks open Steak Pi todo items before stopping (bounded to 3 nudges; respects `continuationActive` and `STEAK_ANTIGRAVITY_FINISH_GUARD=0`). |
+| **Finish guard** | `scripts/stop_hook.py` | Checks open Steak Pi todo items and Antigravity's own `update_steps` plan before stopping (bounded to 3 nudges; respects `continuationActive` and `STEAK_ANTIGRAVITY_FINISH_GUARD=0`). |
 | **USAP delegation guard** | `scripts/delegation_guard.py` | Steers delegation to USAP when active inside UltraTerm (`STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS=1` overrides). |
 
 ## Install

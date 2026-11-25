@@ -23,6 +23,72 @@ import ui_transcript_sync  # noqa: E402
 
 MAX_FINISH_GUARD_PUSHES = 3
 MAX_TODO_BYTES = 256 * 1024
+MAX_TRANSCRIPT_SCAN_BYTES = 256 * 1024 * 1024
+OPEN_STEP_STATES = ("pending", "in_progress", "open")
+
+
+def _decode_arg(value: object) -> object:
+    """Antigravity's transcript.jsonl stores each tool argument JSON-encoded; transcript_full.jsonl does not."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def open_agy_steps(transcript_path: str) -> list[str]:
+    """Open items of the conversation's latest native `update_steps` plan (Antigravity's own todo list)."""
+    if not transcript_path:
+        return []
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(transcript_path, flags)
+    except OSError:
+        return []
+    latest: object = None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+            return []
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            scanned = 0
+            for raw in handle:
+                scanned += len(raw)
+                if scanned > MAX_TRANSCRIPT_SCAN_BYTES:
+                    sys.stderr.write(
+                        f"[steak-antigravity] finish-guard: transcript over {MAX_TRANSCRIPT_SCAN_BYTES} bytes, "
+                        "steps after that point are not checked\n"
+                    )
+                    break
+                if b'"update_steps"' not in raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except ValueError:
+                    continue
+                calls = entry.get("tool_calls") if isinstance(entry, dict) else None
+                for call in calls if isinstance(calls, list) else []:
+                    if isinstance(call, dict) and call.get("name") == "update_steps":
+                        args = call.get("args")
+                        if isinstance(args, dict) and "steps" in args:
+                            latest = _decode_arg(args["steps"])
+    except OSError:
+        return []
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    if not isinstance(latest, list):
+        return []
+    return [
+        str(step.get("title") or "untitled")
+        for step in latest
+        if isinstance(step, dict) and str(step.get("status", "")).lower() in OPEN_STEP_STATES
+    ]
 
 
 def _is_owned_dir(path: Path) -> bool:
@@ -70,7 +136,7 @@ def _extract_open_titles(data: object) -> list[str]:
         if not isinstance(item, dict):
             continue
         status = str(item.get("status", "")).lower()
-        if status in ("pending", "in_progress", "open"):
+        if status in OPEN_STEP_STATES:
             open_titles.append(str(item.get("title") or item.get("text") or "untitled"))
     return open_titles
 
@@ -122,7 +188,7 @@ def main() -> None:
 
     ui_file_env = os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE", "").strip()
     ui_session_env = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
-    if ui_file_env and ui_session_env:
+    if ui_file_env and ui_session_env and ui_transcript_sync.publisher_is_pane_process():
         try:
             ui_transcript_sync.sync_transcript(
                 ui_file=Path(ui_file_env),
@@ -132,8 +198,8 @@ def main() -> None:
                 cwd=cwd,
                 event_name="stop",
             )
-        except OSError:
-            pass
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            sys.stderr.write(f"[steak-antigravity] UI transcript sync failed at stop: {exc}\n")
 
     reason = str(payload.get("terminationReason") or "")
     if (
@@ -144,7 +210,7 @@ def main() -> None:
         print("{}")
         return
 
-    open_todos = count_open_todos(conv_id, cwd)
+    open_todos = count_open_todos(conv_id, cwd) or open_agy_steps(tp if isinstance(tp, str) else "")
     if not open_todos:
         print("{}")
         return

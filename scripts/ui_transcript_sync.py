@@ -107,9 +107,37 @@ def state_file_for(session_id: str, data_dir: Path | None = None) -> Path:
 
 def load_state(path: Path) -> dict:
     try:
-        return json.loads(path.read_text())
+        parsed = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
+    if not isinstance(parsed, dict):
+        sys.stderr.write(f"[steak-antigravity] ignored non-object state file {path}\n")
+        return {}
+    return parsed
+
+
+def drain_verify_failures(data_dir: Path | None = None, conversation_id: str = "") -> list[str]:
+    """Pop verify-after-edit failure notes queued by verify_after_edit.py for this conversation.
+
+    PostToolUse output cannot reach the model, so failures are delivered on the next PreInvocation.
+    """
+    if not conversation_id:
+        return []
+    root = (data_dir or ut_common.plugin_data_dir()) / "verify"
+    if not root.is_dir():
+        return []
+    path = root / f"{conversation_id.replace('/', '_')}.pending.json"
+    try:
+        with file_lock(path.with_suffix(".lock")):
+            if not path.is_file() or path.is_symlink():
+                return []
+            state = load_state(path)
+            os.unlink(path)
+    except OSError as exc:
+        sys.stderr.write(f"[steak-antigravity] verify notice drain failed: {exc}\n")
+        return []
+    notes = state.get("failures")
+    return [n for n in notes if isinstance(n, str)][-3:] if isinstance(notes, list) else []
 
 
 def save_state(path: Path, state: dict) -> None:
@@ -148,6 +176,14 @@ def normalize_tool_args(name: str, args: object) -> dict:
                 out["command"] = out[alt]
                 break
     return out
+
+
+_STEP_TIMING_RE = re.compile(r"\A(?:(?:Created|Completed) At: [^\n]*\n)+")
+
+
+def strip_step_timing(text: str) -> str:
+    """Drop Antigravity's leading 'Created At:/Completed At:' bookkeeping lines from tool output."""
+    return _STEP_TIMING_RE.sub("", text, count=1)
 
 
 def strip_user_tags(text: str) -> str:
@@ -236,7 +272,7 @@ def translate_entry(entry: dict, state: dict) -> list[dict]:
 
     elif step_type in ("GENERIC", "TOOL_RESULT") and entry.get("source") == "MODEL":
         content = entry.get("content", "")
-        text = content if isinstance(content, str) else json.dumps(content)
+        text = strip_step_timing(content if isinstance(content, str) else json.dumps(content))
         explicit_id = entry.get("tool_call_id")
         if explicit_id is None:
             explicit_id = entry.get("toolCallId")
@@ -493,6 +529,51 @@ def sync_transcript(
         return True
 
 
+SHELL_NAMES = {"sh", "bash", "zsh", "dash", "fish", "env", "python3", "python", "timeout"}
+
+
+def _process_row(pid: int) -> tuple[int, str] | None:
+    res = ut_common.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], timeout=1.0)
+    if not res or res.returncode != 0:
+        return None
+    parts = res.stdout.strip().split(None, 1)
+    if len(parts) != 2 or not parts[0].isdigit():
+        return None
+    return int(parts[0]), os.path.basename(parts[1].strip())
+
+
+def publisher_is_pane_process() -> bool:
+    """Only hooks of the pane's own agy may write the pane's UI transcript.
+
+    Antigravity passes its environment (including ULTRATERM_UI_TRANSCRIPT_FILE) to the shell
+    commands it runs, so a nested agy started from a tool call would otherwise publish its own
+    conversation into this pane's file. The first non-shell ancestor of this hook must be the
+    pane process (tmux #{pane_pid}). Outside a resolvable pane the check is skipped.
+    """
+    pane = ut_common.resolve_pane()
+    if not pane:
+        return True
+    res = ut_common.run(ut_common.tmux_command("display-message", "-p", "-t", pane, "#{pane_pid}"))
+    if not res or res.returncode != 0 or not res.stdout.strip().isdigit():
+        return True
+    pane_pid = int(res.stdout.strip())
+    current = os.getppid()
+    for _ in range(8):
+        if current == pane_pid:
+            return True
+        row = _process_row(current)
+        if row is None or row[0] <= 1:
+            break
+        if row[1] not in SHELL_NAMES:
+            sys.stderr.write(
+                f"[steak-antigravity] NestedPublisherRefused: hook runs under {row[1]} (pid {current}), "
+                f"not the pane process {pane_pid}; UI transcript left untouched\n"
+            )
+            return False
+        current = row[0]
+    return False
+
+
 def _ancestor_pids(max_depth: int = 16) -> list[int]:
     pids: list[int] = []
     ppid = os.getppid()
@@ -520,7 +601,7 @@ def _resolve_notice_pid(root: Path, parent_pid: int | None) -> int | None:
     for pid in ancestors:
         if (by_pid / f"{pid}.json").is_file() or (events_dir / f"{pid}.jsonl").is_file():
             return pid
-    if events_dir.is_dir() and any(events_dir.glob("*.jsonl")):
+    if os.environ.get("STEAK_ANTIGRAVITY_DEBUG") == "1" and events_dir.is_dir() and any(events_dir.glob("*.jsonl")):
         sys.stderr.write(
             f"[steak-antigravity] UsapNoticeAncestorUnmatched: events present in {events_dir} but none match ancestors {ancestors[:6]}\n"
         )
@@ -594,7 +675,7 @@ def main() -> None:
     payload = ut_common.read_hook_stdin()
     ui_file_env = os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE", "").strip()
     ui_session_env = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
-    if ui_file_env and ui_session_env:
+    if ui_file_env and ui_session_env and publisher_is_pane_process():
         cwd = str(payload.get("cwd") or os.getcwd())
         conv_id = str(payload.get("conversationId") or "")
         tp = payload.get("transcriptPath")
@@ -608,11 +689,17 @@ def main() -> None:
                 cwd=cwd,
                 event_name=args.event,
             )
-        except OSError as exc:
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
             sys.stderr.write(f"[steak-antigravity] UI transcript sync failed: {exc}\n")
 
     if args.event == "pre-invocation":
+        steps: list[dict] = []
+        for note in drain_verify_failures(conversation_id=str(payload.get("conversationId") or "")):
+            steps.append({"systemMessage": {"systemMessage": note}})
         notices = drain_usap_notices()
+        if steps and not notices:
+            print(json.dumps({"injectSteps": steps, "terminationBehavior": ""}))
+            return
         if notices:
             run_ids = sorted({rid for n in notices for rid in n.get("runIds") or []})
             summary = (
@@ -621,7 +708,8 @@ def main() -> None:
             print(
                 json.dumps(
                     {
-                        "injectSteps": [
+                        "injectSteps": steps
+                        + [
                             {
                                 "systemMessage": {
                                     "systemMessage": (

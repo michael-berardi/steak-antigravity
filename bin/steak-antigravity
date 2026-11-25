@@ -114,36 +114,108 @@ def version() -> str:
     return ver.strip()
 
 
-def upsert_json_entry(config_path: Path, entry_path: str) -> None:
-    data: dict = {"entries": []}
-    if config_path.is_file():
+class ConfigError(RuntimeError):
+    pass
+
+
+def read_entries_config(config_path: Path) -> dict:
+    """Read an Antigravity {"entries": [...]} config; refuse (never overwrite) one we cannot parse."""
+    if not config_path.exists():
+        return {"entries": []}
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot read {config_path}: {exc}") from exc
+    if not raw.strip():
+        return {"entries": []}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{config_path} is not valid JSON ({exc}); fix or remove it, nothing was changed") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("entries", []), list):
+        raise ConfigError(f"{config_path} must be an object with an \"entries\" list; nothing was changed")
+    parsed.setdefault("entries", [])
+    return parsed
+
+
+def write_entries_config(config_path: Path, data: dict) -> None:
+    path = config_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp, path)
+    except OSError:
         try:
-            parsed = json.loads(config_path.read_text())
-            if isinstance(parsed, dict):
-                data = parsed
-        except (OSError, ValueError):
+            os.unlink(tmp)
+        except OSError:
             pass
-    entries = data.setdefault("entries", [])
-    if not any(isinstance(e, dict) and e.get("path") == entry_path for e in entries):
-        entries.append({"path": entry_path})
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(data, indent=2) + "\n")
+        raise
+
+
+def upsert_json_entry(config_path: Path, entry_path: str) -> None:
+    """Add an absolute path entry; Antigravity rejects `~` paths in skills.json/plugins.json."""
+    absolute = str(Path(entry_path).expanduser())
+    data = read_entries_config(config_path)
+    entries = [
+        e
+        for e in data["entries"]
+        # Migrate entries this tool wrote in older versions with a literal `~`.
+        if not (isinstance(e, dict) and isinstance(e.get("path"), str) and e["path"].startswith("~")
+                and str(Path(e["path"]).expanduser()) == absolute)
+    ]
+    if not any(isinstance(e, dict) and e.get("path") == absolute for e in entries):
+        entries.append({"path": absolute})
+    data["entries"] = entries
+    write_entries_config(config_path, data)
+
+
+def relative_config_paths(config_path: Path) -> list[str]:
+    try:
+        data = read_entries_config(config_path)
+    except ConfigError:
+        return []
+    return [
+        e["path"]
+        for e in data["entries"]
+        if isinstance(e, dict) and isinstance(e.get("path"), str) and not e["path"].startswith("/")
+    ]
+
+
+LEGACY_MCP_CACHE_NAMES = ("steak-agy_usap",)
+
+
+def remove_legacy_mcp_cache(cache_root: Path = Path.home() / ".gemini/antigravity-cli/mcp") -> list[str]:
+    """Drop the cached tool schemas of the plugin's pre-rename server name (steak-agy)."""
+    removed = []
+    for name in LEGACY_MCP_CACHE_NAMES:
+        target = cache_root / name
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+            removed.append(str(target))
+    return removed
 
 
 def cmd_install() -> int:
+    try:
+        return _install()
+    except ConfigError as exc:
+        print(f"steak-antigravity install: ConfigError: {exc}", file=sys.stderr)
+        return 1
+
+
+def _install() -> int:
     # Register plugin directory via plugins.json (parent directory containing steak-antigravity).
     # Note: plugins.json scans entries one level deep, so register the parent directory
     # with include_only: ["steak-antigravity"] to avoid picking up unrelated siblings.
     plugins_json = GEMINI_CONFIG / "plugins.json"
-    data: dict = {"entries": []}
-    if plugins_json.is_file():
-        try:
-            parsed = json.loads(plugins_json.read_text())
-            if isinstance(parsed, dict):
-                data = parsed
-        except (OSError, ValueError):
-            pass
-    entries = data.setdefault("entries", [])
+    data = read_entries_config(plugins_json)
+    skills_json = GEMINI_CONFIG / "skills.json"
+    if ut_common.SHARED_SKILLS.is_dir():
+        read_entries_config(skills_json)  # validate before changing anything
+    entries = data["entries"]
     parent = str(ROOT.parent)
     name = ROOT.name
     existing = next(
@@ -152,12 +224,14 @@ def cmd_install() -> int:
     )
     if not existing:
         entries.append({"path": parent, "include_only": [name]})
-    plugins_json.parent.mkdir(parents=True, exist_ok=True)
-    plugins_json.write_text(json.dumps(data, indent=2) + "\n")
+    write_entries_config(plugins_json, data)
 
-    # Wire shared UltraTerm/agent skills if present.
+    # Wire shared UltraTerm/agent skills if present (absolute path: agy rejects `~`).
     if ut_common.SHARED_SKILLS.is_dir():
-        upsert_json_entry(GEMINI_CONFIG / "skills.json", "~/.config/agents/skills")
+        upsert_json_entry(skills_json, str(ut_common.SHARED_SKILLS))
+
+    for path in remove_legacy_mcp_cache():
+        print(f"removed stale MCP cache {path}")
 
     # Wire official Antigravity statusLine snapshot writer (non-destructive).
     configure_statusline()
@@ -179,16 +253,20 @@ def cmd_uninstall() -> int:
     plugins_json = GEMINI_CONFIG / "plugins.json"
     if plugins_json.is_file():
         try:
-            data = json.loads(plugins_json.read_text())
-            entries = [
-                e
-                for e in data.get("entries", [])
-                if not (isinstance(e, dict) and e.get("include_only") == [ROOT.name])
-            ]
-            data["entries"] = entries
-            plugins_json.write_text(json.dumps(data, indent=2) + "\n")
-        except (OSError, ValueError):
-            pass
+            data = read_entries_config(plugins_json)
+        except ConfigError as exc:
+            print(f"steak-antigravity uninstall: ConfigError: {exc}", file=sys.stderr)
+            return 1
+        data["entries"] = [
+            e
+            for e in data["entries"]
+            if not (
+                isinstance(e, dict)
+                and e.get("path") == str(ROOT.parent)
+                and e.get("include_only") == [ROOT.name]
+            )
+        ]
+        write_entries_config(plugins_json, data)
     remove_statusline()
     link = Path.home() / ".local/bin/steak-antigravity"
     if link.is_symlink():
@@ -211,14 +289,29 @@ def cmd_doctor() -> int:
         "sharedSkillsDir": ut_common.SHARED_SKILLS.is_dir(),
         "pluginsJsonConfigured": (GEMINI_CONFIG / "plugins.json").is_file(),
         "skillsJsonConfigured": (GEMINI_CONFIG / "skills.json").is_file(),
+        "skillsJsonRelativePaths": relative_config_paths(GEMINI_CONFIG / "skills.json"),
+        "legacyMcpCache": [
+            name for name in LEGACY_MCP_CACHE_NAMES
+            if (Path.home() / ".gemini/antigravity-cli/mcp" / name).is_dir()
+        ],
         "statusLineConfigured": statusline_configured(),
         "usageSnapshotPresent": (Path.home() / ".ultraterm/antigravity/usage.json").is_file(),
         "uiTranscriptEnv": bool(os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE")),
         "identity": ut_common.terminal_identity(),
     }
     print(json.dumps(checks, indent=2))
+    problems = []
+    if checks["skillsJsonRelativePaths"]:
+        problems.append(
+            f"skills.json has non-absolute paths Antigravity rejects: {checks['skillsJsonRelativePaths']} "
+            "(run `steak-antigravity install`)"
+        )
+    if checks["legacyMcpCache"]:
+        problems.append(f"stale MCP cache from the old plugin name: {checks['legacyMcpCache']} (run `steak-antigravity install`)")
+    for problem in problems:
+        print(f"steak-antigravity doctor: {problem}", file=sys.stderr)
     ok = bool(checks["nodeBinary"] and checks["piSdk"] and checks["steakPiRoot"] and checks["pluginsJsonConfigured"])
-    return 0 if ok else 1
+    return 0 if ok and not problems else 1
 
 
 def main() -> None:

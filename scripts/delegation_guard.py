@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,7 +15,13 @@ import ut_common  # noqa: E402
 
 
 def usap_runtime_ready() -> bool:
-    return ut_common.pi_sdk_entry() is not None and ut_common.steak_pi_root() is not None
+    """Same prerequisites the usap MCP server checks (scripts/usap_mcp.py); never deny native
+    subagents while USAP itself cannot start, or the agent would have no delegation route."""
+    return (
+        shutil.which("node") is not None
+        and ut_common.pi_sdk_entry() is not None
+        and ut_common.steak_pi_root() is not None
+    )
 
 
 def main() -> None:

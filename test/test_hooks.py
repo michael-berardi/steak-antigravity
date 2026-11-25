@@ -669,5 +669,174 @@ class TestAntigravityStatuslineSnapshot(unittest.TestCase):
             self.assertEqual(json.loads(settings.read_text())["statusLine"]["command"], "echo custom")
 
 
+def _load_cli():
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader("steak_agy_cli2", str(ROOT / "bin/steak-antigravity"))
+    spec = importlib.util.spec_from_loader("steak_agy_cli2", loader)
+    cli = importlib.util.module_from_spec(spec)
+    loader.exec_module(cli)
+    return cli
+
+
+class TestFinishGuardNativeSteps(unittest.TestCase):
+    """agy keeps its plan in update_steps tool calls; the finish guard must see them."""
+
+    def _write(self, td: str, name: str, rows: list[dict]) -> Path:
+        path = Path(td) / name
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return path
+
+    def test_reads_latest_plan_in_both_transcript_encodings(self) -> None:
+        steps1 = [{"status": "in_progress", "title": "alpha"}, {"status": "pending", "title": "beta"}]
+        steps2 = [{"status": "done", "title": "alpha"}, {"status": "pending", "title": "beta"}]
+        with tempfile.TemporaryDirectory() as td:
+            full = self._write(td, "transcript_full.jsonl", [
+                {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": steps1}}]},
+                {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": steps2}}]},
+            ])
+            self.assertEqual(stop_hook.open_agy_steps(str(full)), ["beta"])
+            # transcript.jsonl JSON-encodes every argument value
+            enc = self._write(td, "transcript.jsonl", [
+                {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": json.dumps(steps1)}}]},
+            ])
+            self.assertEqual(stop_hook.open_agy_steps(str(enc)), ["alpha", "beta"])
+            done = self._write(td, "done.jsonl", [
+                {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": [{"status": "done", "title": "x"}]}}]},
+            ])
+            self.assertEqual(stop_hook.open_agy_steps(str(done)), [])
+            self.assertEqual(stop_hook.open_agy_steps(str(Path(td) / "missing.jsonl")), [])
+            link = Path(td) / "link.jsonl"
+            link.symlink_to(full)
+            self.assertEqual(stop_hook.open_agy_steps(str(link)), [])
+
+    def test_stop_hook_continues_on_open_native_steps_and_respects_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tp = self._write(td, "transcript_full.jsonl", [
+                {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": [{"status": "pending", "title": "ship it"}]}}]},
+            ])
+            env = {k: v for k, v in os.environ.items() if not k.startswith("ULTRATERM_UI_") and k != "STEAK_ANTIGRAVITY_FINISH_GUARD"}
+            env["HOME"] = str(Path(td) / "home")
+
+            def run(extra: dict) -> dict:
+                payload = {"cwd": td, "conversationId": "c1", "transcriptPath": str(tp), "terminationReason": "NO_TOOL_CALL", "executionNum": 0, **extra}
+                res = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/stop_hook.py")], input=json.dumps(payload), text=True, capture_output=True, env=env, check=True)
+                return json.loads(res.stdout)
+
+            first = run({})
+            self.assertEqual(first["decision"], "continue")
+            self.assertIn("ship it", first["reason"])
+            self.assertEqual(run({"continuationActive": True}), {})
+            self.assertEqual(run({"executionNum": 3}), {})
+            self.assertEqual(run({"terminationReason": "USER_CANCELED"}), {})
+
+
+class TestVerifyFailureReachesAgent(unittest.TestCase):
+    def test_failure_is_queued_drained_once_and_limit_pauses_then_recovers(self) -> None:
+        import verify_after_edit
+
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / ".steak-pi").mkdir()
+            (Path(td) / ".steak-pi" / "config.json").write_text(json.dumps({"verify": {"command": "echo BROKEN-BUILD; exit 1", "failLimit": 1}}))
+            data = Path(td) / "pdata"
+            env = {k: v for k, v in os.environ.items() if not k.startswith("ULTRATERM_UI_")}
+            env.update({"HOME": str(Path(td) / "home"), "PLUGIN_DATA": str(data), "STEAK_ANTIGRAVITY_ALLOW_VERIFY": "1"})
+            payload = json.dumps({"cwd": td, "conversationId": "conv-v", "toolCall": {"name": "edit_file", "args": {"Path": f"{td}/a.py"}}})
+            res = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
+            self.assertEqual(res.stdout.strip(), "{}")
+            self.assertIn("BROKEN-BUILD", res.stderr)
+
+            pre = json.dumps({"conversationId": "conv-v", "cwd": td})
+            out = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/ui_transcript_sync.py"), "--event", "pre-invocation"], input=pre, text=True, capture_output=True, env=env, check=True)
+            steps = json.loads(out.stdout)["injectSteps"]
+            self.assertEqual(len(steps), 1)
+            self.assertIn("BROKEN-BUILD", steps[0]["systemMessage"]["systemMessage"])
+            self.assertIn("paused", steps[0]["systemMessage"]["systemMessage"])
+            again = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/ui_transcript_sync.py"), "--event", "pre-invocation"], input=pre, text=True, capture_output=True, env=env, check=True)
+            self.assertEqual(json.loads(again.stdout)["injectSteps"], [])
+
+            # Paused inside the window, runs again once the window has passed.
+            state_path = data / "verify" / "conv-v.json"
+            state = json.loads(state_path.read_text())
+            self.assertEqual(state["consecutive"], 1)
+            res2 = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
+            self.assertNotIn("BROKEN-BUILD", res2.stderr)
+            state["lastRunMs"] -= verify_after_edit.FAIL_PAUSE_MS + 1000
+            state_path.write_text(json.dumps(state))
+            res3 = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
+            self.assertIn("BROKEN-BUILD", res3.stderr)
+
+            # Corrupt state never crashes the hook.
+            state_path.write_text(json.dumps(["not", "a", "dict"]))
+            res4 = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
+            self.assertEqual(res4.stdout.strip(), "{}")
+
+
+class TestTranscriptRobustness(unittest.TestCase):
+    def test_non_dict_state_and_step_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "s.json"
+            p.write_text("[1, 2]")
+            self.assertEqual(ui_transcript_sync.load_state(p), {})
+        text = "Created At: 2026-11-25T16:24:58-03:00\nCompleted At: 2026-11-25T16:24:59-03:00\nCreated At: x\nCommand exited with code 0.\nCreated At: keep"
+        self.assertEqual(ui_transcript_sync.strip_step_timing(text), "Command exited with code 0.\nCreated At: keep")
+        rows = ui_transcript_sync.translate_entry({"type": "GENERIC", "source": "MODEL", "step_index": 4, "content": text}, {})
+        self.assertEqual(rows[0]["message"]["content"][0]["text"], "Command exited with code 0.\nCreated At: keep")
+
+    def test_publisher_check_passes_outside_a_pane(self) -> None:
+        saved = dict(os.environ)
+        try:
+            for k in ("TMUX_PANE", "ULTRATERM_TMUX_SESSION", "ULTRATERM_TMUX_SOCKET"):
+                os.environ.pop(k, None)
+            self.assertTrue(ui_transcript_sync.publisher_is_pane_process())
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+
+class TestInstallConfigSafety(unittest.TestCase):
+    def test_skills_entry_is_absolute_and_tilde_entry_migrates(self) -> None:
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "skills.json"
+            target = str(Path("~/.config/agents/skills").expanduser())
+            cfg.write_text(json.dumps({"entries": [{"path": "/other"}, {"path": "~/.config/agents/skills"}]}))
+            cli.upsert_json_entry(cfg, "~/.config/agents/skills")
+            self.assertEqual(json.loads(cfg.read_text())["entries"], [{"path": "/other"}, {"path": target}])
+            cli.upsert_json_entry(cfg, target)
+            self.assertEqual(len(json.loads(cfg.read_text())["entries"]), 2)
+            self.assertEqual(cli.relative_config_paths(cfg), [])
+
+    def test_unparseable_config_is_refused_not_overwritten(self) -> None:
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "plugins.json"
+            cfg.write_text("{not json")
+            with self.assertRaises(cli.ConfigError):
+                cli.upsert_json_entry(cfg, "/x")
+            self.assertEqual(cfg.read_text(), "{not json")
+            cfg.write_text("[]")
+            with self.assertRaises(cli.ConfigError):
+                cli.read_entries_config(cfg)
+
+    def test_legacy_mcp_cache_removed(self) -> None:
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "steak-agy_usap").mkdir()
+            (root / "steak-antigravity_usap").mkdir()
+            self.assertEqual(cli.remove_legacy_mcp_cache(root), [str(root / "steak-agy_usap")])
+            self.assertTrue((root / "steak-antigravity_usap").is_dir())
+
+
+class TestDelegationGuardReadiness(unittest.TestCase):
+    def test_allows_native_subagents_when_node_missing(self) -> None:
+        env = {**os.environ, "PATH": "/nonexistent", "ULTRATERM_TMUX_SESSION": "ultraterm-matrix-9"}
+        env.pop("STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS", None)
+        res = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/delegation_guard.py")], input="{}", text=True, capture_output=True, env=env, check=True)
+        self.assertEqual(json.loads(res.stdout)["decision"], "allow")
+
+
 if __name__ == "__main__":
     unittest.main()
