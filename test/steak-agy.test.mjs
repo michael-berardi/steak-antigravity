@@ -128,17 +128,23 @@ describe("usap-bridge helpers", () => {
         const linkJson = join(byPid, "99999997.json");
         const recentEvent = join(events, "99999996.jsonl");
         const oldEvent = join(events, "99999995.jsonl");
+        const oldCursor = join(events, "99999995.cursor.json");
+        const oldLock = join(events, "99999995.cursor.lock");
         await fs.writeFile(deadJson, "{}");
         await fs.writeFile(deadTmp, "{}");
         await fs.writeFile(liveJson, "{}");
         symlinkSync(liveJson, linkJson);
         await fs.writeFile(recentEvent, "{}\n");
         await fs.writeFile(oldEvent, "{}\n");
+        await fs.writeFile(oldCursor, "{}");
+        await fs.writeFile(oldLock, "");
         const now = Date.now();
         const oldSec = (now - 48 * 3600 * 1000) / 1000;
         utimesSync(oldEvent, oldSec, oldSec);
+        utimesSync(oldCursor, oldSec, oldSec);
+        utimesSync(oldLock, oldSec, oldSec);
         const removed = await sweepStaleBridgeFiles(dir, now, 24 * 3600 * 1000);
-        assert.equal(removed, 3); // deadJson + deadTmp + oldEvent
+        assert.equal(removed, 5); // deadJson + deadTmp + oldEvent + oldCursor + oldLock
         assert.equal(statSync(liveJson).isFile(), true);
         assert.equal(statSync(recentEvent).isFile(), true);
         assert.equal(await isRegularOwnedFile(linkJson), false);

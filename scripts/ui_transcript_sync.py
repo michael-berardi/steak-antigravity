@@ -397,7 +397,27 @@ def sync_transcript(
                             break
                         if not raw.endswith(b"\n"):
                             if len(raw) > remaining:
-                                # Single line exceeds byte budget; stop without advancing past partial line.
+                                if bytes_read == 0:
+                                    # Single line exceeds MAX_SYNC_BYTES: skip forward to its newline so sync never stalls forever.
+                                    skipped = len(raw)
+                                    found_nl = False
+                                    while True:
+                                        chunk = handle.read(65_536)
+                                        if not chunk:
+                                            break
+                                        nl = chunk.find(b"\n")
+                                        if nl != -1:
+                                            skipped += nl + 1
+                                            found_nl = True
+                                            break
+                                        skipped += len(chunk)
+                                    if found_nl:
+                                        offset += skipped
+                                        handle.seek(offset)
+                                        bytes_read = MAX_SYNC_BYTES
+                                        lines_read += 1
+                                        truncated = offset < size
+                                        break
                                 truncated = True
                             break
                         offset += len(raw)

@@ -280,6 +280,58 @@ class TestUiTranscriptSync(unittest.TestCase):
         finally:
             ui_transcript_sync.MAX_SYNC_LINES = orig_cap
 
+    def test_oversized_single_line_is_skipped_without_stalling_sync(self) -> None:
+        src = self.tmp / "giant.jsonl"
+        orig_bytes = ui_transcript_sync.MAX_SYNC_BYTES
+        try:
+            ui_transcript_sync.MAX_SYNC_BYTES = 128
+            giant = json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "x" * 300})
+            follow = json.dumps({"step_index": 1, "type": "USER_INPUT", "content": "after giant"})
+            src.write_text(giant + "\n" + follow + "\n")
+            ui_file = self.ui_dir / f"{self.session_id}.jsonl"
+            ui_transcript_sync.sync_transcript(
+                ui_file=ui_file,
+                ui_session_id=self.session_id,
+                conversation_id="conv-giant",
+                source_transcript=src,
+                cwd=str(self.tmp),
+                event_name="sync",
+                data_dir=self.data_dir,
+            )
+            # Second sync must advance past the oversized line and read the following line
+            ui_transcript_sync.sync_transcript(
+                ui_file=ui_file,
+                ui_session_id=self.session_id,
+                conversation_id="conv-giant",
+                source_transcript=src,
+                cwd=str(self.tmp),
+                event_name="stop",
+                data_dir=self.data_dir,
+            )
+            rows = [json.loads(l) for l in ui_file.read_text().splitlines()]
+            self.assertTrue(any(r.get("message", {}).get("content") == "after giant" for r in rows))
+            self.assertTrue(any(r.get("message", {}).get("stopReason") == "stop" for r in rows))
+        finally:
+            ui_transcript_sync.MAX_SYNC_BYTES = orig_bytes
+
+    def test_numeric_tool_call_id_and_pending_calls_cap(self) -> None:
+        state: dict = {}
+        ui_transcript_sync.translate_entry(
+            {
+                "step_index": 1,
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [{"id": i, "name": f"tool-{i}"} for i in range(300)],
+            },
+            state,
+        )
+        self.assertEqual(len(state["pendingCalls"]), ui_transcript_sync.MAX_PENDING_CALLS)
+        rows = ui_transcript_sync.translate_entry(
+            {"step_index": 2, "type": "TOOL_RESULT", "source": "MODEL", "tool_call_id": 299, "content": "ok"},
+            state,
+        )
+        self.assertEqual(rows[0]["message"]["toolCallId"], "299")
+        self.assertEqual(rows[0]["message"]["toolName"], "tool-299")
+
 
 class TestStopHookTodos(unittest.TestCase):
     def test_reads_canonical_workspace_steak_pi_todo_store(self) -> None:
@@ -308,6 +360,11 @@ class TestStopHookTodos(unittest.TestCase):
                 json.dumps({"ownerSessionId": "conv-link", "items": [{"title": "Evil", "status": "open"}]})
             )
             (Path(td) / ".steak-pi" / "todo" / "symns").symlink_to(outside)
+            self.assertEqual(stop_hook.count_open_todos("conv-link", td), [])
+            # Symlinked todo.json inside a real namespace dir must also be ignored
+            real_ns = Path(td) / ".steak-pi" / "todo" / "realns"
+            real_ns.mkdir()
+            (real_ns / "todo.json").symlink_to(outside / "todo.json")
             self.assertEqual(stop_hook.count_open_todos("conv-link", td), [])
 
 
