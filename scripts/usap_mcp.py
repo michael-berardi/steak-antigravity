@@ -87,6 +87,14 @@ def main() -> None:
     parent_model = os.environ.get("ULTRATERM_HARNESS_PROFILE") or "antigravity"
     os.environ["STEAK_ANTIGRAVITY_PARENT_PID"] = str(os.getppid())
     os.environ["STEAK_ANTIGRAVITY_WORKSPACE_CWD"] = workspace_cwd
+    # Workers spawned through this bridge never need the operator's tmux pane server.
+    # Drop TMUX/TMUX_PANE after pane discovery and keep ~/.ultraterm/bin ahead of Homebrew on PATH.
+    os.environ.pop("TMUX", None)
+    os.environ.pop("TMUX_PANE", None)
+    ut_bin = str(Path.home() / ".ultraterm" / "bin")
+    if os.path.isdir(ut_bin):
+        parts = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p and p != ut_bin]
+        os.environ["PATH"] = os.pathsep.join([ut_bin, *parts])
     try:
         os.chdir(workspace_cwd)
     except OSError as exc:

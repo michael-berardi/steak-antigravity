@@ -544,6 +544,12 @@ class TestVerifyTrustGate(unittest.TestCase):
             )
             self.assertTrue(marker.exists())
 
+    def test_usap_mcp_drops_tmux_env_and_prefers_ultraterm_bin(self) -> None:
+        source = (ROOT / "scripts/usap_mcp.py").read_text(encoding="utf-8")
+        self.assertIn('os.environ.pop("TMUX", None)', source)
+        self.assertIn('os.environ.pop("TMUX_PANE", None)', source)
+        self.assertIn('".ultraterm" / "bin"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
