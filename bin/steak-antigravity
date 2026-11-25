@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Steak AGY CLI: doctor, install, uninstall, status, identity, version."""
+"""Steak Antigravity CLI: doctor, install, uninstall, status, identity, version."""
 from __future__ import annotations
 
 import json
@@ -40,9 +40,9 @@ def upsert_json_entry(config_path: Path, entry_path: str) -> None:
 
 
 def cmd_install() -> int:
-    # Register plugin directory via plugins.json (parent directory containing steak-agy).
+    # Register plugin directory via plugins.json (parent directory containing steak-antigravity).
     # Note: plugins.json scans entries one level deep, so register the parent directory
-    # with include_only: ["steak-agy"] to avoid picking up unrelated siblings.
+    # with include_only: ["steak-antigravity"] to avoid picking up unrelated siblings.
     plugins_json = GEMINI_CONFIG / "plugins.json"
     data: dict = {"entries": []}
     if plugins_json.is_file():
@@ -71,13 +71,13 @@ def cmd_install() -> int:
     # Install CLI shim in ~/.local/bin.
     local_bin = Path.home() / ".local/bin"
     local_bin.mkdir(parents=True, exist_ok=True)
-    link = local_bin / "steak-agy"
+    link = local_bin / "steak-antigravity"
     if link.is_symlink() or not link.exists():
         if link.is_symlink():
             link.unlink()
-        link.symlink_to(ROOT / "bin/steak-agy")
+        link.symlink_to(ROOT / "bin/steak-antigravity")
 
-    print(f"steak-agy {version()} installed into {GEMINI_CONFIG}")
+    print(f"steak-antigravity {version()} installed into {GEMINI_CONFIG}")
     return 0
 
 
@@ -95,10 +95,10 @@ def cmd_uninstall() -> int:
             plugins_json.write_text(json.dumps(data, indent=2) + "\n")
         except (OSError, ValueError):
             pass
-    link = Path.home() / ".local/bin/steak-agy"
+    link = Path.home() / ".local/bin/steak-antigravity"
     if link.is_symlink():
         link.unlink()
-    print("steak-agy removed from ~/.gemini/config/plugins.json and ~/.local/bin")
+    print("steak-antigravity removed from ~/.gemini/config/plugins.json and ~/.local/bin")
     return 0
 
 
@@ -138,7 +138,7 @@ def main() -> None:
     if cmd == "identity":
         print(json.dumps(ut_common.terminal_identity(), indent=2))
         sys.exit(0)
-    print("Usage: steak-agy <doctor|status|install|uninstall|identity|version>", file=sys.stderr)
+    print("Usage: steak-antigravity <doctor|status|install|uninstall|identity|version>", file=sys.stderr)
     sys.exit(2)
 
 

@@ -38,13 +38,13 @@ def is_verify_trusted(cwd: Path) -> bool:
     """Trust gate: never run repo-controlled verify.command without explicit operator trust.
 
     Trusted when either:
-    - STEAK_AGY_ALLOW_VERIFY=1 is set in the environment, or
+    - STEAK_ANTIGRAVITY_ALLOW_VERIFY=1 is set in the environment, or
     - the resolved repo path appears in a private, user-owned
-      `~/.steak-agy/trusted-verify-repos.json` allowlist (array of absolute paths).
+      `~/.steak-antigravity/trusted-verify-repos.json` allowlist (array of absolute paths).
     """
-    if os.environ.get("STEAK_AGY_ALLOW_VERIFY") == "1":
+    if os.environ.get("STEAK_ANTIGRAVITY_ALLOW_VERIFY") == "1":
         return True
-    allowlist = ut_common.HOME / ".steak-agy/trusted-verify-repos.json"
+    allowlist = ut_common.HOME / ".steak-antigravity/trusted-verify-repos.json"
     ok, _ = ut_common.verify_private_dir(allowlist.parent)
     if not ok or not allowlist.is_file() or allowlist.is_symlink():
         return False
@@ -106,8 +106,8 @@ def main() -> None:
         return
     if not is_verify_trusted(cwd):
         sys.stderr.write(
-            f"[steak-agy] verify skipped (untrusted repo {cwd}; set STEAK_AGY_ALLOW_VERIFY=1 "
-            "or add repo path to ~/.steak-agy/trusted-verify-repos.json)\n"
+            f"[steak-antigravity] verify skipped (untrusted repo {cwd}; set STEAK_ANTIGRAVITY_ALLOW_VERIFY=1 "
+            "or add repo path to ~/.steak-antigravity/trusted-verify-repos.json)\n"
         )
         print("{}")
         return
@@ -117,7 +117,7 @@ def main() -> None:
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     ok, reason = ut_common.verify_private_dir(state_dir)
     if not ok:
-        sys.stderr.write(f"[steak-agy] verify state dir unsafe: {reason}\n")
+        sys.stderr.write(f"[steak-antigravity] verify state dir unsafe: {reason}\n")
         print("{}")
         return
     state_path = state_dir / f"{conv_id}.json"
@@ -174,7 +174,7 @@ def main() -> None:
             json.dump(state, handle)
         os.replace(tmp, state_path)
     except OSError as exc:
-        sys.stderr.write(f"[steak-agy] verify state write failed: {exc}\n")
+        sys.stderr.write(f"[steak-antigravity] verify state write failed: {exc}\n")
         try:
             os.unlink(tmp)
         except OSError:
@@ -185,7 +185,7 @@ def main() -> None:
         if timed_out:
             tail = (tail + "\n" if tail else "") + f"(timed out after {config['timeoutMs']} ms)"
         sys.stderr.write(
-            f"[steak-agy] verify failed ({state['consecutive']}/{config['failLimit']}): {config['command']}\n{tail}\n"
+            f"[steak-antigravity] verify failed ({state['consecutive']}/{config['failLimit']}): {config['command']}\n{tail}\n"
         )
 
     print("{}")

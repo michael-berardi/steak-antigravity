@@ -19,19 +19,19 @@ function walk(dir, out = []) {
   return out;
 }
 
-describe("steak-agy manifest & contracts", () => {
+describe("steak-antigravity manifest & contracts", () => {
   it("has valid plugin.json, mcp_config.json, and hooks.json at plugin root", () => {
     const plugin = JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8"));
-    assert.equal(plugin.name, "steak-agy");
+    assert.equal(plugin.name, "steak-antigravity");
 
     const mcp = JSON.parse(readFileSync(join(ROOT, "mcp_config.json"), "utf8"));
     assert.ok(mcp.mcpServers?.usap?.command);
 
     const hooks = JSON.parse(readFileSync(join(ROOT, "hooks.json"), "utf8"));
-    assert.ok(hooks["steak-agy-session"]?.SessionStart?.length > 0);
-    assert.ok(hooks["steak-agy-transcript"]?.PreInvocation?.length > 0);
-    assert.ok(hooks["steak-agy-verify"]?.PostToolUse?.length > 0);
-    assert.ok(hooks["steak-agy-stop"]?.Stop?.length > 0);
+    assert.ok(hooks["steak-antigravity-session"]?.SessionStart?.length > 0);
+    assert.ok(hooks["steak-antigravity-transcript"]?.PreInvocation?.length > 0);
+    assert.ok(hooks["steak-antigravity-verify"]?.PostToolUse?.length > 0);
+    assert.ok(hooks["steak-antigravity-stop"]?.Stop?.length > 0);
   });
 
   it("is strictly provider-neutral (no hardcoded model IDs or operator/client names)", () => {
@@ -48,7 +48,7 @@ describe("steak-agy manifest & contracts", () => {
       /\bplataplace\b/i,
     ];
     for (const file of walk(ROOT)) {
-      if (file.endsWith("steak-agy.test.mjs")) continue;
+      if (file.endsWith("steak-antigravity.test.mjs")) continue;
       const content = readFileSync(file, "utf8");
       for (const rx of forbidden) {
         assert.ok(!rx.test(content), `Provider-neutrality violation (${rx}) in ${file}`);
@@ -59,7 +59,7 @@ describe("steak-agy manifest & contracts", () => {
 
 describe("usap-bridge helpers", () => {
   it("preserves implicit dispatches when routing.json is valid so Steak Pi resolves chains natively", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "steak-agy-route-"));
+    const dir = mkdtempSync(join(tmpdir(), "steak-antigravity-route-"));
     try {
       const routingFile = join(dir, "routing.json");
       writeFileSync(
@@ -102,14 +102,14 @@ describe("usap-bridge helpers", () => {
     }
   });
 
-  it("resolves workspace cwd from STEAK_AGY_WORKSPACE_CWD, rejects symlinks, and sweeps dead-pid files", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "steak-agy-cwd-"));
+  it("resolves workspace cwd from STEAK_ANTIGRAVITY_WORKSPACE_CWD, rejects symlinks, and sweeps dead-pid files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "steak-antigravity-cwd-"));
     try {
-      assert.equal(resolveBridgeCwd({ STEAK_AGY_WORKSPACE_CWD: dir }, "/fallback"), realpathSync(dir));
+      assert.equal(resolveBridgeCwd({ STEAK_ANTIGRAVITY_WORKSPACE_CWD: dir }, "/fallback"), realpathSync(dir));
       assert.equal(resolveBridgeCwd({}, "/fallback"), "/fallback");
       const notADir = join(dir, "plain.txt");
       writeFileSync(notADir, "hi");
-      assert.equal(resolveBridgeCwd({ STEAK_AGY_WORKSPACE_CWD: notADir }, "/fallback"), "/fallback");
+      assert.equal(resolveBridgeCwd({ STEAK_ANTIGRAVITY_WORKSPACE_CWD: notADir }, "/fallback"), "/fallback");
 
       // isRegularOwnedFile accepts owned regular files and rejects symlinks
       assert.equal(await isRegularOwnedFile(notADir), true);

@@ -1,5 +1,5 @@
 ---
-name: steak-agy
+name: steak-antigravity
 description: >-
   How Antigravity CLI (agy) cooperates with UltraTerm, Steak Pi, Steak DSH,
   and Claude Code — pane identity, shared operator rules, shared skills, Retex
@@ -7,9 +7,9 @@ description: >-
   verify-after-edit, owned paths, finish guard, and UI Mode transcript sync.
 ---
 
-# Steak AGY workflow
+# Steak Antigravity workflow
 
-`steak-agy` gives Antigravity CLI (`agy`) the same UltraTerm operating surface
+`steak-antigravity` gives Antigravity CLI (`agy`) the same UltraTerm operating surface
 that Pi, Steak Pi, Steak DSH, and Claude Code share, using Antigravity's native
 plugin mechanisms (`plugin.json`, `mcp_config.json`, `hooks.json`, `rules/`,
 and `skills/`).
@@ -28,7 +28,7 @@ and `skills/`).
 - **Verify-after-edit (`PostToolUse` hook)**: Runs `.steak-pi/config.json`
   `verify.command` after `write_file` / `edit_file`, debounced with bounded
   output and clean process-group reaping.
-- **Owned-paths guard (`PreToolUse` hook)**: When `STEAK_AGY_OWNED_PATHS` is
+- **Owned-paths guard (`PreToolUse` hook)**: When `STEAK_ANTIGRAVITY_OWNED_PATHS` is
   set (colon-separated paths), blocks edits outside the declared scope.
 - **UI Mode transcript publisher (`ultraterm.transcript/1`)**: Incrementally
   translates Antigravity's `transcript.jsonl` into `ULTRATERM_UI_TRANSCRIPT_FILE`
@@ -39,9 +39,9 @@ and `skills/`).
 ## Commands
 
 ```sh
-steak-agy doctor       # Verify plugin, USAP runtime, UTP, Retex, skills, UI Mode
-steak-agy install      # Register steak-agy and shared skills in ~/.gemini/config
-steak-agy status       # Show current pane identity, active runtimes, and wiring
+steak-antigravity doctor       # Verify plugin, USAP runtime, UTP, Retex, skills, UI Mode
+steak-antigravity install      # Register steak-antigravity and shared skills in ~/.gemini/config
+steak-antigravity status       # Show current pane identity, active runtimes, and wiring
 ut-identity            # Print live UltraTerm tmux/terminal identity
 ut-todo view           # Inspect active todo plan
 utp list               # List UltraTerm terminals and their UUIDs

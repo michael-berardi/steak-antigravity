@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the Steak AGY USAP stdio MCP bridge with the active Pi SDK and Steak Pi."""
+"""Launch the Steak Antigravity USAP stdio MCP bridge with the active Pi SDK and Steak Pi."""
 from __future__ import annotations
 
 import os
@@ -25,14 +25,14 @@ def resolve_session_id() -> str:
     pane = ut_common.resolve_pane() or ""
     term_id = os.environ.get("ULTRATERM_TERMINAL_ID", "").strip()
     if tmux_session and (pane or term_id):
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"steak-agy:{tmux_session}:{pane}:{term_id}"))
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"steak-antigravity:{tmux_session}:{pane}:{term_id}"))
     # Outside UltraTerm (or without a verified pane/terminal), isolate each
     # MCP bridge process with a fresh UUID instead of sharing one file.
     return str(uuid.uuid4())
 
 
 def resolve_workspace_cwd() -> str | None:
-    for var in ("STEAK_AGY_WORKSPACE_CWD", "ULTRATERM_WORKSPACE_CWD"):
+    for var in ("STEAK_ANTIGRAVITY_WORKSPACE_CWD", "ULTRATERM_WORKSPACE_CWD"):
         val = os.environ.get(var, "").strip()
         if val and os.path.isdir(val):
             return os.path.realpath(val)
@@ -56,7 +56,7 @@ def main() -> None:
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     ok_dir, dir_reason = ut_common.verify_private_dir(data_dir)
     if not ok_dir:
-        sys.stderr.write(f"[steak-agy-usap] UnsafePluginDataDir: {dir_reason}\n")
+        sys.stderr.write(f"[steak-antigravity-usap] UnsafePluginDataDir: {dir_reason}\n")
         sys.exit(1)
     raw_node = shutil.which("node")
     node = os.path.realpath(raw_node) if raw_node else None
@@ -72,12 +72,12 @@ def main() -> None:
         if not sdk
         else "Steak Pi package not found"
         if not steak
-        else "WorkspaceCwdUnknown: no workspace cwd available (set STEAK_AGY_WORKSPACE_CWD or run inside an UltraTerm pane)"
+        else "WorkspaceCwdUnknown: no workspace cwd available (set STEAK_ANTIGRAVITY_WORKSPACE_CWD or run inside an UltraTerm pane)"
         if not workspace_cwd
         else None
     )
     if reason:
-        sys.stderr.write(f"[steak-agy-usap] unavailable: {reason}\n")
+        sys.stderr.write(f"[steak-antigravity-usap] unavailable: {reason}\n")
         if node:
             os.execv(node, [node, str(unavailable), reason])
         sys.exit(1)
@@ -85,12 +85,12 @@ def main() -> None:
     bridge = ROOT / "lib/usap-bridge.mjs"
     session_id = resolve_session_id()
     parent_model = os.environ.get("ULTRATERM_HARNESS_PROFILE") or "antigravity"
-    os.environ["STEAK_AGY_PARENT_PID"] = str(os.getppid())
-    os.environ["STEAK_AGY_WORKSPACE_CWD"] = workspace_cwd
+    os.environ["STEAK_ANTIGRAVITY_PARENT_PID"] = str(os.getppid())
+    os.environ["STEAK_ANTIGRAVITY_WORKSPACE_CWD"] = workspace_cwd
     try:
         os.chdir(workspace_cwd)
     except OSError as exc:
-        sys.stderr.write(f"[steak-agy-usap] WorkspaceChdirFailed: {exc}\n")
+        sys.stderr.write(f"[steak-antigravity-usap] WorkspaceChdirFailed: {exc}\n")
         sys.exit(1)
     os.execv(
         node,

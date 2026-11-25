@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Antigravity Stop hook for Steak AGY.
+"""Antigravity Stop hook for Steak Antigravity.
 
 1. Flushes the final UI Mode transcript row with stopReason="stop".
 2. Checks open ut-todo items for the current session (finish guard) and requests
@@ -139,7 +139,7 @@ def main() -> None:
     if (
         reason != "NO_TOOL_CALL"
         or payload.get("continuationActive")
-        or os.environ.get("STEAK_AGY_FINISH_GUARD") == "0"
+        or os.environ.get("STEAK_ANTIGRAVITY_FINISH_GUARD") == "0"
     ):
         print("{}")
         return
@@ -160,7 +160,7 @@ def main() -> None:
             {
                 "decision": "continue",
                 "reason": (
-                    f"[steak-agy finish-guard] {len(open_todos)} open todo item(s) remain ({preview}). "
+                    f"[steak-antigravity finish-guard] {len(open_todos)} open todo item(s) remain ({preview}). "
                     "Finish them or record a real external blocker before stopping."
                 ),
             }

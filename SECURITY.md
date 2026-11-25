@@ -2,7 +2,7 @@
 
 ## Scope
 
-`steak-agy` bridges Antigravity CLI (`agy`) with local UltraTerm and Steak Pi
+`steak-antigravity` bridges Antigravity CLI (`agy`) with local UltraTerm and Steak Pi
 tooling:
 
 - **USAP MCP bridge** (`scripts/usap_mcp.py`, `lib/usap-bridge.mjs`): registers
@@ -17,7 +17,7 @@ tooling:
   project's declared `.steak-pi/config.json` `verify.command` in an owned
   process group that is always reaped on timeout or exit.
 - **Owned-paths guard** (`scripts/owned_paths_guard.py`): resolves real paths
-  and blocks writes outside `STEAK_AGY_OWNED_PATHS` when configured.
+  and blocks writes outside `STEAK_ANTIGRAVITY_OWNED_PATHS` when configured.
 - **Provider neutrality**: contains no hardcoded model names, API keys,
   provider preferences, or personal paths.
 

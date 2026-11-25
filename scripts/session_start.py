@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Antigravity SessionStart hook for Steak AGY.
+"""Antigravity SessionStart hook for Steak Antigravity.
 
 - Initializes UltraTerm UI Mode transcript header when ULTRATERM_UI_TRANSCRIPT_FILE is set.
 - Injects operator's shared ~/.pi/agent/AGENTS.md (when present) so Antigravity
@@ -55,7 +55,7 @@ def main() -> None:
                 {
                     "systemMessage": {
                         "systemMessage": (
-                            f"[steak-agy] Shared UltraTerm operator rules loaded from {agents_md}:\n\n{text}"
+                            f"[steak-antigravity] Shared UltraTerm operator rules loaded from {agents_md}:\n\n{text}"
                         )
                     }
                 }
@@ -79,7 +79,7 @@ def main() -> None:
         inject_steps.append(
             {
                 "systemMessage": {
-                    "systemMessage": "[steak-agy] UltraTerm pane identity: " + ", ".join(summary_parts)
+                    "systemMessage": "[steak-antigravity] UltraTerm pane identity: " + ", ".join(summary_parts)
                 }
             }
         )

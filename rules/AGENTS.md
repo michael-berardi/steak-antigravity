@@ -1,6 +1,6 @@
-# Steak AGY — UltraTerm & Steak Pi operating contract
+# Steak Antigravity — UltraTerm & Steak Pi operating contract
 
-When running inside UltraTerm with `steak-agy` active:
+When running inside UltraTerm with `steak-antigravity` active:
 
 1. **Shared operator rules**: If `~/.pi/agent/AGENTS.md` exists, its rules bind
    you just as they bind Pi, Steak Pi, and Claude Code agents. The `SessionStart`
@@ -20,7 +20,7 @@ When running inside UltraTerm with `steak-agy` active:
 5. **Verification & finish guard**: Projects declaring `.steak-pi/config.json`
    `verify.command` are verified automatically after edits. Resolve all open
    `ut-todo` items (or record an external blocker) before finishing.
-6. **UI Mode**: When UltraTerm sets `ULTRATERM_UI_TRANSCRIPT_FILE`, `steak-agy`
+6. **UI Mode**: When UltraTerm sets `ULTRATERM_UI_TRANSCRIPT_FILE`, `steak-antigravity`
    publishes your conversation in `ultraterm.transcript/1` format automatically.
    Never pass `ULTRATERM_UI_TRANSCRIPT_FILE`, `ULTRATERM_UI_SESSION_ID`, or
    `ULTRATERM_MAIN_SCREEN` to child processes.

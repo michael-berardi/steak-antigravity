@@ -18,11 +18,11 @@ def usap_runtime_ready() -> bool:
 
 
 def main() -> None:
-    if os.environ.get("STEAK_AGY_ALLOW_NATIVE_SUBAGENTS") == "1":
+    if os.environ.get("STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS") == "1":
         print(json.dumps({"decision": "allow"}))
         return
 
-    enforce = os.environ.get("STEAK_AGY_USAP_ONLY") == "1"
+    enforce = os.environ.get("STEAK_ANTIGRAVITY_USAP_ONLY") == "1"
     in_ultraterm = bool(os.environ.get("ULTRATERM_TMUX_SESSION"))
 
     if (enforce or in_ultraterm) and usap_runtime_ready():
@@ -33,7 +33,7 @@ def main() -> None:
                     "reason": (
                         "In UltraTerm, USAP is the shared delegation route. Use the `usap` MCP tools "
                         "`ultraterm_subagents` and `ultraterm_hub` so waves share routing, caps, telemetry, "
-                        "and receipts across agents. Set STEAK_AGY_ALLOW_NATIVE_SUBAGENTS=1 to override."
+                        "and receipts across agents. Set STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS=1 to override."
                     ),
                 }
             )

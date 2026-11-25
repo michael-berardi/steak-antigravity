@@ -1,14 +1,14 @@
 {
-  "name": "steak-agy",
+  "name": "steak-antigravity",
   "version": "0.1.1",
   "logo": "assets/logo.svg",
   "author": {
     "name": "Pareto Cybernetics",
     "url": "https://paretocybernetics.com"
   },
-  "homepage": "https://github.com/michael-berardi/steak-agy#readme",
+  "homepage": "https://github.com/michael-berardi/steak-antigravity#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/michael-berardi/steak-agy.git"
+    "url": "https://github.com/michael-berardi/steak-antigravity.git"
   }
 }

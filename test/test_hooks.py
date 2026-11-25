@@ -15,7 +15,7 @@ import ui_transcript_sync  # noqa: E402
 
 class TestUiTranscriptSync(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="steak-agy-ui-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="steak-antigravity-ui-"))
         self.ui_dir = self.tmp / "ui-transcripts"
         self.ui_dir.mkdir(mode=0o700)
         self.data_dir = self.tmp / "data"
@@ -433,12 +433,12 @@ class TestUsapMcpWorkspace(unittest.TestCase):
         orig_cwd = os.getcwd()
         orig_env = dict(os.environ)
         try:
-            for k in ("STEAK_AGY_WORKSPACE_CWD", "ULTRATERM_WORKSPACE_CWD", "TMUX_PANE", "ULTRATERM_TMUX_SESSION", "ULTRATERM_TMUX_SOCKET"):
+            for k in ("STEAK_ANTIGRAVITY_WORKSPACE_CWD", "ULTRATERM_WORKSPACE_CWD", "TMUX_PANE", "ULTRATERM_TMUX_SESSION", "ULTRATERM_TMUX_SOCKET"):
                 os.environ.pop(k, None)
             os.chdir(ROOT)
             self.assertIsNone(usap_mcp.resolve_workspace_cwd())
             with tempfile.TemporaryDirectory() as td:
-                os.environ["STEAK_AGY_WORKSPACE_CWD"] = td
+                os.environ["STEAK_ANTIGRAVITY_WORKSPACE_CWD"] = td
                 self.assertEqual(usap_mcp.resolve_workspace_cwd(), os.path.realpath(td))
         finally:
             os.chdir(orig_cwd)
@@ -449,7 +449,7 @@ class TestUsapMcpWorkspace(unittest.TestCase):
 class TestOwnedPathsGuard(unittest.TestCase):
     def test_allows_in_scope_and_denies_out_of_scope(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            env = {**os.environ, "STEAK_AGY_OWNED_PATHS": f"{td}/src"}
+            env = {**os.environ, "STEAK_ANTIGRAVITY_OWNED_PATHS": f"{td}/src"}
             allow_payload = json.dumps({"cwd": td, "toolCall": {"name": "write_file", "args": {"Path": f"{td}/src/a.ts"}}})
             res1 = subprocess.run(
                 [sys.executable, "-I", "-B", str(ROOT / "scripts/owned_paths_guard.py")],
@@ -464,7 +464,7 @@ class TestOwnedPathsGuard(unittest.TestCase):
             )
             self.assertEqual(json.loads(res2.stdout)["decision"], "deny")
 
-            # Missing target argument must fail CLOSED when STEAK_AGY_OWNED_PATHS is set.
+            # Missing target argument must fail CLOSED when STEAK_ANTIGRAVITY_OWNED_PATHS is set.
             missing_payload = json.dumps({"cwd": td, "toolCall": {"name": "edit_file", "args": {}}})
             res3 = subprocess.run(
                 [sys.executable, "-I", "-B", str(ROOT / "scripts/owned_paths_guard.py")],
@@ -488,8 +488,8 @@ class TestOwnedPathsGuard(unittest.TestCase):
                 f"from pathlib import Path; Path({str(stub_marker)!r}).write_text('pwned'); raise SystemExit(99)\n"
             )
             hooks = json.loads((ROOT / "hooks.json").read_text())
-            cmd = hooks["steak-agy-guards"]["PreToolUse"][0]["hooks"][0]["command"]
-            env = {**os.environ, "PLUGIN_ROOT": str(ROOT), "STEAK_AGY_OWNED_PATHS": f"{hostile}/src"}
+            cmd = hooks["steak-antigravity-guards"]["PreToolUse"][0]["hooks"][0]["command"]
+            env = {**os.environ, "PLUGIN_ROOT": str(ROOT), "STEAK_ANTIGRAVITY_OWNED_PATHS": f"{hostile}/src"}
             res = subprocess.run(
                 ["/bin/sh", "-c", cmd],
                 cwd=hostile,
@@ -526,7 +526,7 @@ class TestVerifyTrustGate(unittest.TestCase):
             payload = json.dumps({"cwd": td, "conversationId": "c1", "toolCall": {"name": "write_file", "args": {"Path": f"{td}/a.ts"}}})
 
             # Untrusted (with isolated HOME so real user allowlist is never read): must NOT execute repo command.
-            env_untrusted = {k: v for k, v in os.environ.items() if k != "STEAK_AGY_ALLOW_VERIFY"}
+            env_untrusted = {k: v for k, v in os.environ.items() if k != "STEAK_ANTIGRAVITY_ALLOW_VERIFY"}
             env_untrusted["HOME"] = str(Path(td) / "home")
             env_untrusted["PLUGIN_DATA"] = str(Path(td) / "pdata")
             res1 = subprocess.run(
@@ -537,7 +537,7 @@ class TestVerifyTrustGate(unittest.TestCase):
             self.assertIn("untrusted repo", res1.stderr)
 
             # Explicitly trusted: runs command.
-            env_trusted = {**env_untrusted, "STEAK_AGY_ALLOW_VERIFY": "1"}
+            env_trusted = {**env_untrusted, "STEAK_ANTIGRAVITY_ALLOW_VERIFY": "1"}
             subprocess.run(
                 [sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")],
                 input=payload, text=True, capture_output=True, env=env_trusted, check=True,

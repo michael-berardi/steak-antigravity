@@ -1,17 +1,17 @@
 {
-  "name": "steak-agy",
+  "name": "steak-antigravity",
   "version": "0.1.0",
-  "description": "Steak AGY: a provider-neutral Antigravity CLI (agy) plugin adding Steak Pi and UltraTerm parity — USAP subagents, UTP messaging, UI Mode transcript publishing, verify-after-edit, owned paths, finish guard, and shared rules/skills integration.",
+  "description": "Steak Antigravity: a provider-neutral Antigravity CLI (agy) plugin adding Steak Pi and UltraTerm parity — USAP subagents, UTP messaging, UI Mode transcript publishing, verify-after-edit, owned paths, finish guard, and shared rules/skills integration.",
   "license": "MIT",
   "author": "Pareto Cybernetics",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/michael-berardi/steak-agy.git"
+    "url": "git+https://github.com/michael-berardi/steak-antigravity.git"
   },
-  "homepage": "https://github.com/michael-berardi/steak-agy#readme",
+  "homepage": "https://github.com/michael-berardi/steak-antigravity#readme",
   "bugs": {
-    "url": "https://github.com/michael-berardi/steak-agy/issues"
+    "url": "https://github.com/michael-berardi/steak-antigravity/issues"
   },
   "keywords": [
     "antigravity",
@@ -27,7 +27,7 @@
     "node": ">=22"
   },
   "bin": {
-    "steak-agy": "bin/steak-agy"
+    "steak-antigravity": "bin/steak-antigravity"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs && python3 -m unittest discover -s test -p 'test_*.py'"

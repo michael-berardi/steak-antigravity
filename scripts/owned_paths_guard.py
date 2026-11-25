@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse guard enforcing STEAK_AGY_OWNED_PATHS on file-mutation tools.
+"""PreToolUse guard enforcing STEAK_ANTIGRAVITY_OWNED_PATHS on file-mutation tools.
 
 Note: this guards Antigravity's structured file-edit tools (`write_file`,
 `edit_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`).
@@ -30,7 +30,7 @@ def is_within(target: Path, allowed: Path) -> bool:
 
 
 def main() -> None:
-    raw_owned = os.environ.get("STEAK_AGY_OWNED_PATHS", "").strip()
+    raw_owned = os.environ.get("STEAK_ANTIGRAVITY_OWNED_PATHS", "").strip()
     if not raw_owned:
         print(json.dumps({"decision": "allow"}))
         return
@@ -42,7 +42,7 @@ def main() -> None:
             json.dumps(
                 {
                     "decision": "deny",
-                    "reason": "steak-agy owned-paths guard: missing workspace cwd in hook payload (fail closed).",
+                    "reason": "steak-antigravity owned-paths guard: missing workspace cwd in hook payload (fail closed).",
                 }
             )
         )
@@ -62,7 +62,7 @@ def main() -> None:
             json.dumps(
                 {
                     "decision": "deny",
-                    "reason": "steak-agy owned-paths guard: could not extract target file path from tool arguments (fail closed).",
+                    "reason": "steak-antigravity owned-paths guard: could not extract target file path from tool arguments (fail closed).",
                 }
             )
         )
@@ -90,7 +90,7 @@ def main() -> None:
             json.dumps(
                 {
                     "decision": "deny",
-                    "reason": f"steak-agy owned-paths guard: {target} is outside STEAK_AGY_OWNED_PATHS.",
+                    "reason": f"steak-antigravity owned-paths guard: {target} is outside STEAK_ANTIGRAVITY_OWNED_PATHS.",
                 }
             )
         )

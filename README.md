@@ -1,8 +1,8 @@
-# Steak AGY
+# Steak Antigravity
 
 **Steak Pi & UltraTerm parity for Google Antigravity CLI (`agy`).**
 
-`steak-agy` is a provider-neutral native Antigravity plugin that connects `agy`
+`steak-antigravity` is a provider-neutral native Antigravity plugin that connects `agy`
 to the shared UltraTerm and Steak Pi ecosystem using Antigravity's supported
 plugin mechanisms (`plugin.json`, `mcp_config.json`, `hooks.json`, `rules/`,
 and `skills/`).
@@ -18,31 +18,31 @@ MIT. Zero runtime npm dependencies. By [Pareto Cybernetics](https://paretocybern
 | **Shared operator rules & skills** | `scripts/session_start.py` + `skills.json` | Injects `~/.pi/agent/AGENTS.md` on `SessionStart` and wires `~/.config/agents/skills` into Antigravity discovery. |
 | **UTP peer awareness** | `lib/ut_common.py` + `scripts/session_start.py` | Reports live tmux pane & UltraTerm terminal UUID (`utp list`) and surfaces background USAP completion notices on `PreInvocation`. |
 | **Verify-after-edit** | `scripts/verify_after_edit.py` | Runs `.steak-pi/config.json` `verify.command` after `write_file`/`edit_file` with debouncing, `failLimit`, and process-group reaping. |
-| **Owned-paths guard** | `scripts/owned_paths_guard.py` | Enforces `STEAK_AGY_OWNED_PATHS` on file writes for scoped worker runs. |
-| **Finish guard** | `scripts/stop_hook.py` | Checks open Steak Pi todo items before stopping (bounded to 3 nudges; respects `continuationActive` and `STEAK_AGY_FINISH_GUARD=0`). |
-| **USAP delegation guard** | `scripts/delegation_guard.py` | Steers delegation to USAP when active inside UltraTerm (`STEAK_AGY_ALLOW_NATIVE_SUBAGENTS=1` overrides). |
+| **Owned-paths guard** | `scripts/owned_paths_guard.py` | Enforces `STEAK_ANTIGRAVITY_OWNED_PATHS` on file writes for scoped worker runs. |
+| **Finish guard** | `scripts/stop_hook.py` | Checks open Steak Pi todo items before stopping (bounded to 3 nudges; respects `continuationActive` and `STEAK_ANTIGRAVITY_FINISH_GUARD=0`). |
+| **USAP delegation guard** | `scripts/delegation_guard.py` | Steers delegation to USAP when active inside UltraTerm (`STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS=1` overrides). |
 
 ## Install
 
 ```sh
-git clone https://github.com/michael-berardi/steak-agy.git
-cd steak-agy
+git clone https://github.com/michael-berardi/steak-antigravity.git
+cd steak-antigravity
 ./install.sh
-steak-agy doctor
+steak-antigravity doctor
 ```
 
 Or install directly via Antigravity CLI:
 
 ```sh
-agy plugin install /path/to/steak-agy
+agy plugin install /path/to/steak-antigravity
 ```
 
 ## Provider Neutrality
 
-`steak-agy` carries no built-in model IDs, provider preferences, fallback chains,
+`steak-antigravity` carries no built-in model IDs, provider preferences, fallback chains,
 paid-route grants, or operator/client names. All model routing lives exclusively
 in the operator's own `~/.config/ultraterm/routing.json`. A dedicated unit test
-(`test/steak-agy.test.mjs`) enforces this invariant.
+(`test/steak-antigravity.test.mjs`) enforces this invariant.
 
 ## Testing
 

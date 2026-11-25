@@ -1,4 +1,4 @@
-"""Shared helpers for Steak AGY (Antigravity CLI plugin for UltraTerm & Steak Pi).
+"""Shared helpers for Steak Antigravity (Antigravity CLI plugin for UltraTerm & Steak Pi).
 
 Provider-neutral: carries no hardcoded model names, provider preferences, or
 operator-specific paths. All configuration resolves from standard UltraTerm,
@@ -31,7 +31,7 @@ def plugin_data_dir() -> Path:
     configured = os.environ.get("PLUGIN_DATA", "").strip()
     if configured:
         return Path(configured).expanduser()
-    return HOME / ".steak-agy/data"
+    return HOME / ".steak-antigravity/data"
 
 
 def run(args: list[str], timeout: float = 2.0) -> subprocess.CompletedProcess | None:
