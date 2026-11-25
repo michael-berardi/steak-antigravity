@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Antigravity SessionStart hook for Steak AGY.
+
+- Initializes UltraTerm UI Mode transcript header when ULTRATERM_UI_TRANSCRIPT_FILE is set.
+- Injects operator's shared ~/.pi/agent/AGENTS.md (when present) so Antigravity
+  follows the exact same rules as Pi, Steak Pi, and Claude Code.
+- Injects live UltraTerm pane/terminal identity summary.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "lib"))
+sys.path.insert(0, str(ROOT / "scripts"))
+import ut_common  # noqa: E402
+import ui_transcript_sync  # noqa: E402
+
+MAX_RULES_BYTES = 48_000
+
+
+def main() -> None:
+    payload = ut_common.read_hook_stdin()
+    cwd = str(payload.get("cwd") or os.getcwd())
+    conv_id = str(payload.get("conversationId") or "")
+    tp = payload.get("transcriptPath")
+    source = Path(tp) if isinstance(tp, str) and tp else None
+
+    ui_file_env = os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE", "").strip()
+    ui_session_env = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
+    if ui_file_env and ui_session_env:
+        try:
+            ui_transcript_sync.sync_transcript(
+                ui_file=Path(ui_file_env),
+                ui_session_id=ui_session_env,
+                conversation_id=conv_id,
+                source_transcript=source,
+                cwd=cwd,
+                event_name="session-start",
+            )
+        except OSError:
+            pass
+
+    inject_steps: list[dict] = []
+
+    agents_md = ut_common.PI_AGENT_DIR / "AGENTS.md"
+    if agents_md.is_file():
+        try:
+            text = agents_md.read_text(encoding="utf-8", errors="replace")[:MAX_RULES_BYTES]
+            inject_steps.append(
+                {
+                    "systemMessage": {
+                        "systemMessage": (
+                            f"[steak-agy] Shared UltraTerm operator rules loaded from {agents_md}:\n\n{text}"
+                        )
+                    }
+                }
+            )
+        except OSError:
+            pass
+
+    identity = ut_common.terminal_identity()
+    if identity.get("insideUltraTerm"):
+        summary_parts = [
+            f"slot={identity.get('slot')}",
+            f"pane={identity.get('pane')}",
+            f"tmux={identity.get('tmuxSession')}",
+        ]
+        if identity.get("terminalId"):
+            summary_parts.append(f"terminalId={identity['terminalId']}")
+        if identity.get("harness"):
+            summary_parts.append(f"harness={identity['harness']}")
+        if identity.get("launchProfile"):
+            summary_parts.append(f"profile={identity['launchProfile']}")
+        inject_steps.append(
+            {
+                "systemMessage": {
+                    "systemMessage": "[steak-agy] UltraTerm pane identity: " + ", ".join(summary_parts)
+                }
+            }
+        )
+
+    print(json.dumps({"injectSteps": inject_steps}))
+
+
+if __name__ == "__main__":
+    main()

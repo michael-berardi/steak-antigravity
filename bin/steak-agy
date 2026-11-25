@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Steak AGY CLI: doctor, install, uninstall, status, identity, version."""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "lib"))
+import ut_common  # noqa: E402
+
+GEMINI_CONFIG = Path.home() / ".gemini/config"
+
+
+def version() -> str:
+    try:
+        return json.loads((ROOT / "package.json").read_text()).get("version", "0.1.0")
+    except (OSError, ValueError):
+        return "0.1.0"
+
+
+def upsert_json_entry(config_path: Path, entry_path: str) -> None:
+    data: dict = {"entries": []}
+    if config_path.is_file():
+        try:
+            parsed = json.loads(config_path.read_text())
+            if isinstance(parsed, dict):
+                data = parsed
+        except (OSError, ValueError):
+            pass
+    entries = data.setdefault("entries", [])
+    if not any(isinstance(e, dict) and e.get("path") == entry_path for e in entries):
+        entries.append({"path": entry_path})
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def cmd_install() -> int:
+    # Register plugin directory via plugins.json (parent directory containing steak-agy).
+    # Note: plugins.json scans entries one level deep, so register the parent directory
+    # with include_only: ["steak-agy"] to avoid picking up unrelated siblings.
+    plugins_json = GEMINI_CONFIG / "plugins.json"
+    data: dict = {"entries": []}
+    if plugins_json.is_file():
+        try:
+            parsed = json.loads(plugins_json.read_text())
+            if isinstance(parsed, dict):
+                data = parsed
+        except (OSError, ValueError):
+            pass
+    entries = data.setdefault("entries", [])
+    parent = str(ROOT.parent)
+    name = ROOT.name
+    existing = next(
+        (e for e in entries if isinstance(e, dict) and e.get("path") == parent and e.get("include_only") == [name]),
+        None,
+    )
+    if not existing:
+        entries.append({"path": parent, "include_only": [name]})
+    plugins_json.parent.mkdir(parents=True, exist_ok=True)
+    plugins_json.write_text(json.dumps(data, indent=2) + "\n")
+
+    # Wire shared UltraTerm/agent skills if present.
+    if ut_common.SHARED_SKILLS.is_dir():
+        upsert_json_entry(GEMINI_CONFIG / "skills.json", "~/.config/agents/skills")
+
+    # Install CLI shim in ~/.local/bin.
+    local_bin = Path.home() / ".local/bin"
+    local_bin.mkdir(parents=True, exist_ok=True)
+    link = local_bin / "steak-agy"
+    if link.is_symlink() or not link.exists():
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(ROOT / "bin/steak-agy")
+
+    print(f"steak-agy {version()} installed into {GEMINI_CONFIG}")
+    return 0
+
+
+def cmd_uninstall() -> int:
+    plugins_json = GEMINI_CONFIG / "plugins.json"
+    if plugins_json.is_file():
+        try:
+            data = json.loads(plugins_json.read_text())
+            entries = [
+                e
+                for e in data.get("entries", [])
+                if not (isinstance(e, dict) and e.get("include_only") == [ROOT.name])
+            ]
+            data["entries"] = entries
+            plugins_json.write_text(json.dumps(data, indent=2) + "\n")
+        except (OSError, ValueError):
+            pass
+    link = Path.home() / ".local/bin/steak-agy"
+    if link.is_symlink():
+        link.unlink()
+    print("steak-agy removed from ~/.gemini/config/plugins.json and ~/.local/bin")
+    return 0
+
+
+def cmd_doctor() -> int:
+    checks = {
+        "version": version(),
+        "pluginRoot": str(ROOT),
+        "agyBinary": shutil.which("agy"),
+        "nodeBinary": shutil.which("node"),
+        "piSdk": str(ut_common.pi_sdk_entry()) if ut_common.pi_sdk_entry() else None,
+        "steakPiRoot": str(ut_common.steak_pi_root()) if ut_common.steak_pi_root() else None,
+        "utpBinary": str(ut_common.UTP) if os.access(ut_common.UTP, os.X_OK) else None,
+        "retexBinary": ut_common.retex_binary(),
+        "sharedAgentsMd": (ut_common.PI_AGENT_DIR / "AGENTS.md").is_file(),
+        "sharedSkillsDir": ut_common.SHARED_SKILLS.is_dir(),
+        "pluginsJsonConfigured": (GEMINI_CONFIG / "plugins.json").is_file(),
+        "skillsJsonConfigured": (GEMINI_CONFIG / "skills.json").is_file(),
+        "uiTranscriptEnv": bool(os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE")),
+        "identity": ut_common.terminal_identity(),
+    }
+    print(json.dumps(checks, indent=2))
+    ok = bool(checks["nodeBinary"] and checks["piSdk"] and checks["steakPiRoot"] and checks["pluginsJsonConfigured"])
+    return 0 if ok else 1
+
+
+def main() -> None:
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd in ("-v", "--version", "version"):
+        print(version())
+        sys.exit(0)
+    if cmd == "install":
+        sys.exit(cmd_install())
+    if cmd == "uninstall":
+        sys.exit(cmd_uninstall())
+    if cmd in ("doctor", "status"):
+        sys.exit(cmd_doctor())
+    if cmd == "identity":
+        print(json.dumps(ut_common.terminal_identity(), indent=2))
+        sys.exit(0)
+    print("Usage: steak-agy <doctor|status|install|uninstall|identity|version>", file=sys.stderr)
+    sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,84 @@
+{
+  "steak-agy-session": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 -I -B ./scripts/session_start.py",
+        "timeout": 15
+      }
+    ]
+  },
+  "steak-agy-transcript": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -I -B ./scripts/ui_transcript_sync.py --event pre-invocation",
+        "timeout": 10
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -I -B ./scripts/ui_transcript_sync.py --event post-invocation",
+        "timeout": 10
+      }
+    ]
+  },
+  "steak-agy-guards": {
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I -B ./scripts/owned_paths_guard.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "invoke_subagent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I -B ./scripts/delegation_guard.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "steak-agy-verify": {
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I -B ./scripts/verify_after_edit.py",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I -B ./scripts/ui_transcript_sync.py --event post-tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "steak-agy-stop": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 -I -B ./scripts/stop_hook.py",
+        "timeout": 15
+      }
+    ]
+  }
+}

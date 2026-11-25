@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "usap": {
+      "command": "python3",
+      "args": [
+        "-I",
+        "-B",
+        "./scripts/usap_mcp.py"
+      ]
+    }
+  }
+}

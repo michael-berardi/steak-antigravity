@@ -1,0 +1,14 @@
+{
+  "name": "steak-agy",
+  "version": "0.1.0",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "Pareto Cybernetics",
+    "url": "https://paretocybernetics.com"
+  },
+  "homepage": "https://github.com/michael-berardi/steak-agy#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michael-berardi/steak-agy.git"
+  }
+}
