@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 - 2026-11-25
+
+- Drop inherited operator `TMUX` and `TMUX_PANE` environment variables and prepend
+  `~/.ultraterm/bin` to `PATH` before launching the USAP MCP bridge in
+  `scripts/usap_mcp.py`, isolating spawned subagent workers from the live terminal
+  multiplexer server.
+- Add regression test coverage in `test/test_hooks.py`.
+
 ## 0.1.2 - 2026-11-25
 
 - Read MCP `serverInfo.version` dynamically from `package.json` in `lib/usap-bridge.mjs`
