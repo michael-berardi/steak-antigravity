@@ -55,6 +55,18 @@ describe("steak-antigravity manifest & contracts", () => {
       }
     }
   });
+
+  it("keeps package.json, plugin.json, CHANGELOG.md, and MCP serverInfo versions aligned", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    const plugin = JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8"));
+    const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+    const bridge = readFileSync(join(ROOT, "lib/usap-bridge.mjs"), "utf8");
+    const unavailable = readFileSync(join(ROOT, "lib/mcp-unavailable.mjs"), "utf8");
+    assert.equal(plugin.version, pkg.version, "plugin.json version must match package.json");
+    assert.match(changelog, new RegExp("^## " + pkg.version.replaceAll(".", "\\.") + "(?:\\s|$)", "m"), "CHANGELOG.md must document current version");
+    assert.doesNotMatch(bridge, /serverInfo:.*version:\s*"0\.1\.0"/, "usap-bridge must read version from package.json");
+    assert.doesNotMatch(unavailable, /serverInfo:.*version:\s*"0\.1\.0"/, "mcp-unavailable must read version from package.json");
+  });
 });
 
 describe("usap-bridge helpers", () => {

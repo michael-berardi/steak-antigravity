@@ -17,10 +17,15 @@ GEMINI_CONFIG = Path.home() / ".gemini/config"
 
 
 def version() -> str:
+    pkg_path = ROOT / "package.json"
     try:
-        return json.loads((ROOT / "package.json").read_text()).get("version", "0.1.0")
-    except (OSError, ValueError):
-        return "0.1.0"
+        parsed = json.loads(pkg_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"steak-antigravity: cannot read version from {pkg_path}: {exc}") from exc
+    ver = parsed.get("version") if isinstance(parsed, dict) else None
+    if not isinstance(ver, str) or not ver.strip():
+        raise RuntimeError(f"steak-antigravity: missing valid version in {pkg_path}")
+    return ver.strip()
 
 
 def upsert_json_entry(config_path: Path, entry_path: str) -> None:
