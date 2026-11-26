@@ -96,7 +96,45 @@ grep -q "Upgraded steak-antigravity from 0.0.1 to $VERSION\." "$WORK/last.log" |
 entries_count=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for e in d["entries"] if e.get("include_only")==["steak-antigravity"]))' "$H2/.gemini/config/plugins.json")
 [ "$entries_count" -eq 1 ] || fail "upgrade duplicated plugins.json entry (count=$entries_count)"
 no_staging_leftovers "$H2/.local/share" || fail "upgrade left staging folder"
-pass "idempotent upgrade 0.0.1 -> $VERSION preserves single plugins.json entry and leaves no staging dirs"
+[ "$(tr -d ' \t\r\n' < "$T2.previous/VERSION")" = "0.0.1" ] || fail "upgrade did not keep the previous version as $T2.previous"
+[ -f "$T2.previous/.steak-antigravity-managed" ] || fail "rollback copy is missing the managed marker"
+run_inst "$H2" || { cat "$WORK/last.log" >&2; fail "second upgrade exited non-zero"; }
+[ "$(find "$H2/.local/share" -mindepth 1 -maxdepth 1 -name 'steak-antigravity*' | wc -l | tr -d ' ')" = "2" ] \
+  || fail "upgrades accumulated more than one rollback copy"
+[ "$(tr -d ' \t\r\n' < "$T2.previous/VERSION")" = "$VERSION" ] || fail "rollback copy was not replaced"
+pass "idempotent upgrade 0.0.1 -> $VERSION preserves single plugins.json entry, keeps exactly one .previous, no staging dirs"
+
+# 3b. `steak-antigravity update` end to end against these release assets (file:// API and downloads),
+#     then `update --rollback`, then the rollback copy is pruned once the new version has run.
+H_UP="$WORK/h-update"; mkdir -p "$H_UP"
+run_inst "$H_UP" --no-wire || { cat "$WORK/last.log" >&2; fail "update setup install failed"; }
+T_UP="$H_UP/.local/share/steak-antigravity"
+sed "s/\"version\": \"$VERSION\"/\"version\": \"0.0.1\"/" "$T_UP/package.json" > "$WORK/pkg" && cat "$WORK/pkg" > "$T_UP/package.json"
+printf '0.0.1\n' > "$T_UP/VERSION"
+printf '{"tag_name": "v%s", "draft": false, "prerelease": false, "body": "Release notes"}\n' "$VERSION" > "$WORK/latest.json"
+mkdir -p "$WORK/tmp-up"
+cli_up() {
+  env -i PATH="$PATH" TMPDIR="$WORK/tmp-up" HOME="$H_UP" XDG_CACHE_HOME="$H_UP/.cache" \
+    STEAK_ANTIGRAVITY_UPDATE_API="file://$WORK/latest.json" STEAK_ANTIGRAVITY_BASE_URL="$BASE" \
+    python3 -I -B "$T_UP/bin/steak-antigravity" "$@" >"$WORK/last.log" 2>&1
+}
+set +e; cli_up update --check; code=$?; set -e
+[ "$code" = "10" ] || { cat "$WORK/last.log" >&2; fail "update --check exited $code, expected 10"; }
+grep -q "steak-antigravity $VERSION available (you have 0.0.1)" "$WORK/last.log" || fail "update --check notice missing"
+cli_up update || { cat "$WORK/last.log" >&2; fail "update exited non-zero"; }
+grep -q "Installed steak-antigravity $VERSION" "$WORK/last.log" || { cat "$WORK/last.log" >&2; fail "update did not report the install"; }
+[ "$(tr -d ' \t\r\n' < "$T_UP/VERSION")" = "$VERSION" ] || fail "update did not install $VERSION"
+[ "$(tr -d ' \t\r\n' < "$T_UP.previous/VERSION")" = "0.0.1" ] || fail "update did not keep 0.0.1 for rollback"
+[ -z "$(ls -A "$WORK/tmp-up")" ] || fail "update left temporary files"
+cli_up update --rollback || { cat "$WORK/last.log" >&2; fail "update --rollback exited non-zero"; }
+[ "$(tr -d ' \t\r\n' < "$T_UP/VERSION")" = "0.0.1" ] || fail "rollback did not restore 0.0.1"
+[ ! -e "$T_UP.previous" ] || fail "rollback left the .previous copy"
+no_staging_leftovers "$H_UP/.local/share" || fail "rollback left a holder folder"
+cli_up update || { cat "$WORK/last.log" >&2; fail "update after rollback exited non-zero"; }
+[ -d "$T_UP.previous" ] || fail "second update kept no rollback copy"
+cli_up version || fail "new version failed to run"
+[ ! -e "$T_UP.previous" ] || fail "rollback copy survived the new version's first run"
+pass "update --check (exit 10), verified update, --rollback, and pruning of the rollback copy work on these assets"
 
 # 4. Tampered, missing, malformed, short, and duplicate SHA256SUMS fail closed before touching disk.
 BAD="$WORK/bad"; mkdir -p "$BAD"
@@ -258,6 +296,7 @@ pass "swap failure rolls back previous installation cleanly with zero leftover f
 # 7. Clean --uninstall removes managed dir, symlink, and unwires Antigravity without touching unrelated user settings.
 run_inst "$H2" --uninstall || { cat "$WORK/last.log" >&2; fail "--uninstall exited non-zero"; }
 [ ! -e "$T2" ] || fail "--uninstall did not remove managed install dir"
+[ ! -e "$T2.previous" ] || fail "--uninstall did not remove the rollback copy"
 [ ! -L "$L2" ] && [ ! -e "$L2" ] || fail "--uninstall did not remove CLI symlink"
 grep -q '"/other/plugins"' "$H2/.gemini/config/plugins.json" || fail "--uninstall removed unrelated plugins.json entry"
 if grep -q '"steak-antigravity"' "$H2/.gemini/config/plugins.json"; then

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 - 2026-11-26
+
+- Add update notices and `steak-antigravity update` (update contract v1, `lib/update_check.py`, [docs/updates.md](docs/updates.md)):
+  - One anonymous check per 24 h of the public GitHub latest-release record, started from the interactive agy status line or after a CLI command on a terminal, detached and low priority with a 4 s timeout. Never in `SessionStart`, print/headless runs, CI or agent workers. Opt out with `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1` or `updates.checkAutomatically: false`.
+  - Notice: one status-line line (an hour, at most once a day per version) or two stderr lines after a CLI command on a TTY. `update --skip` hides a version until a newer one.
+  - `update` shows the release notes, asks on a TTY, and verifies the downloaded installer against `SHA256SUMS` before running it. `update --check` exits 0/10/1. `--auto on|off|status`: automatic updates are off by default. `--rollback` restores the kept copy. Git checkouts and npm/Homebrew installs are not overwritten.
+- `install.sh` keeps exactly one `<dir>.previous` rollback copy, which the new version removes after its first run (7 days at most). `--uninstall` removes it too.
+- No debris: one cache file, a temporary download folder removed on success and failure, an auto-update log under 256 KB, and `uninstall` deletes the cache, log and update settings.
+- Add `PRIVACY.md`. The README Privacy section is short and links to it.
+
 ## 0.4.1 - 2026-11-26
 
 - Add ToS-safe per-pane live subagent activity publishing for UltraTerm (`lib/pane_activity.py`, `scripts/antigravity_statusline.py`, `scripts/session_start.py`, `scripts/ui_transcript_sync.py`, `scripts/stop_hook.py`):

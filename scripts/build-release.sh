@@ -68,7 +68,7 @@ mkdir "$STAGE/bundle"
 # Export shipped runtime files directly from git HEAD (excludes tests, build/test scripts, installers, dotfiles).
 git archive --format=tar HEAD -- \
   package.json plugin.json hooks.json mcp_config.json \
-  LICENSE README.md CHANGELOG.md SECURITY.md \
+  LICENSE README.md CHANGELOG.md SECURITY.md PRIVACY.md docs \
   assets bin lib rules scripts skills \
   ':(exclude)scripts/build-release.sh' \
   ':(exclude)scripts/test-install.sh' \

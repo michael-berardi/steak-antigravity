@@ -119,6 +119,19 @@ paid-route grants, or operator/client names. All model routing lives exclusively
 in the operator's own `~/.config/ultraterm/routing.json`. A dedicated unit test
 (`test/steak-antigravity.test.mjs`) enforces this invariant.
 
+## Updates
+
+When a newer release is out, the agy status line shows a one-line notice and
+`steak-antigravity update` installs it (checksum-verified, with rollback).
+Automatic updates stay off until you run `steak-antigravity update --auto on`.
+See [docs/updates.md](docs/updates.md).
+
+## Privacy
+
+No telemetry. The plugin's only internet request of its own is a daily anonymous
+check of its public GitHub release record: no IDs, versions or usage data. Turn it
+off with `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1`. Details: [PRIVACY.md](PRIVACY.md).
+
 ## Testing
 
 ```sh

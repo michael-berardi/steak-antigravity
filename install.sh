@@ -2,7 +2,8 @@
 # Steak Antigravity installer for macOS and Linux:
 #   curl -fsSL https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh | sh
 # Downloads steak-antigravity.tar.gz and SHA256SUMS over HTTPS, verifies SHA-256 fail-closed before touching disk,
-# stages and swaps atomically into ${STEAK_ANTIGRAVITY_HOME:-$HOME/.local/share/steak-antigravity},
+# stages and swaps atomically into ${STEAK_ANTIGRAVITY_HOME:-$HOME/.local/share/steak-antigravity}
+# (keeping one <dir>.previous copy for rollback),
 # installs the CLI symlink in ${STEAK_ANTIGRAVITY_BIN_DIR:-$HOME/.local/bin}, and wires Antigravity CLI.
 # Never uses sudo or edits shell profiles. Re-running upgrades atomically.
 set -eu
@@ -142,7 +143,7 @@ uninstall_managed() {
       say "  unwire:  skipped (--no-wire)"
     fi
     say "  symlink: remove $link (only if pointing to $target/bin/$NAME)"
-    say "  dir:     remove $target (only if managed by this installer)"
+    say "  dir:     remove $target and $target.previous (only if managed by this installer)"
     return 0
   fi
 
@@ -188,6 +189,9 @@ uninstall_managed() {
     say "Removed $NAME from $target."
   else
     say "$NAME is not installed at $target."
+  fi
+  if [ -d "$target.previous" ] && [ ! -L "$target.previous" ] && [ -f "$target.previous/$MANAGED_MARK" ]; then
+    rm -rf "$target.previous"
   fi
 }
 
@@ -465,6 +469,19 @@ main() {
     fi
     STAGE=""
     SWAP_PENDING=0
+    # Keep exactly one rollback copy for `steak-antigravity update --rollback`. The new version
+    # removes it after its first successful run (or after 7 days).
+    PREV_DIR="$TARGET.previous"
+    if [ -L "$PREV_DIR" ] || { [ -e "$PREV_DIR" ] && [ ! -f "$PREV_DIR/$MANAGED_MARK" ]; }; then
+      warn "$PREV_DIR is not a $NAME rollback copy; leaving it alone (no rollback copy kept)"
+    else
+      [ -f "$BACKUP/$MANAGED_MARK" ] || printf 'managed-by=%s-installer\nversion=%s\n' "$NAME" "$PREVIOUS" > "$BACKUP/$MANAGED_MARK"
+      if rm -rf "$PREV_DIR" && mv "$BACKUP" "$PREV_DIR"; then
+        touch "$PREV_DIR"
+      else
+        warn "could not keep a rollback copy at $PREV_DIR"
+      fi
+    fi
     if ! rm -rf "$BACKUP_HOLDER"; then
       warn "could not remove temporary backup folder $BACKUP_HOLDER"
     fi

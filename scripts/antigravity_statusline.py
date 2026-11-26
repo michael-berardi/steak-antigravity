@@ -14,10 +14,11 @@ a non-PII quota snapshot to `~/.ultraterm/antigravity/usage.json`:
   }
 
 Design & honesty rules:
-- Prints nothing to stdout so `stack_with_default: true` keeps Antigravity's
-  default status bar clean without adding blank lines.
-- Never touches Google auth, never makes network calls, never writes PII
-  (email, cwd, transcript_path, conversation_id are discarded).
+- Prints nothing to stdout (so `stack_with_default: true` keeps Antigravity's
+  default status bar clean) except a one-line update notice, see docs/updates.md.
+- Never touches Google auth, never writes PII (email, cwd, transcript_path,
+  conversation_id are discarded). Its only network use is the detached daily
+  update check in lib/update_check.py.
 - When `agy` has not loaded quota yet (e.g., `agent_state: "authenticating"`),
   exits 0 without overwriting an existing snapshot.
 - Refuses symlinks, non-owner directories, and unsafe permissions.
@@ -41,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 import ut_common  # noqa: E402
 import pane_activity  # noqa: E402
+import update_check  # noqa: E402
 
 MAX_STDIN_BYTES = 256 * 1024
 SCHEMA_VERSION = 1
@@ -202,6 +204,17 @@ def main() -> int:
             )
         except Exception as exc:
             sys.stderr.write(f"[steak-antigravity] pane activity publish failed: {exc}\n")
+
+    # 3. Update notice in the footer. statusLine only runs in the interactive agy TUI
+    #    (never print/headless runs), so this is also where the detached daily check
+    #    starts. Off for CI, agent workers and opt-outs; skipped in tests.
+    if not (args.output or args.pane_dir):
+        try:
+            line = update_check.footer_line()
+            if line:
+                sys.stdout.write(line + "\n")
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] update notice failed: {exc}\n")
 
     return 0
 
