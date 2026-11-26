@@ -26,11 +26,12 @@ MIT. Zero runtime npm dependencies. By [Pareto Cybernetics](https://paretocybern
 
 ## Privacy
 
-No telemetry, analytics, crash reports, install IDs, or analytics SDKs; normal operation makes no outbound network call.
-USAP model traffic goes only to the provider you configured in `~/.config/ultraterm/routing.json`; the plugin never runs parent inference.
-UltraTerm quota auto-resume can make one loopback-only local check; disable it with `STEAK_ANTIGRAVITY_AUTO_RESUME=0`.
-Installers fetch GitHub releases over HTTPS with fail-closed SHA-256 verification and make no other network calls.
-Local state is owner-only (`0600`/`0700`) and bounded; see [PRIVACY.md](PRIVACY.md) for every write, retention bound, and deletion step.
+No telemetry, analytics, crash reports or install IDs; the plugin itself makes no outbound network call.
+USAP worker prompts go only to the provider you set in `~/.config/ultraterm/routing.json`.
+Quota auto-resume makes one loopback-only check; `STEAK_ANTIGRAVITY_AUTO_RESUME=0` turns it off.
+Installers download the release from GitHub over HTTPS and verify its SHA-256.
+No update check runs, so there is nothing to opt out of; re-run the installer to update.
+Local state is owner-only and pruned automatically; delete `~/.steak-antigravity/data/` and `~/.ultraterm/antigravity/` to remove it ([PRIVACY.md](PRIVACY.md)).
 
 ## USAP Overview & Native `/swarm` Coexistence
 
