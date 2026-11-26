@@ -26,14 +26,11 @@ MIT. Zero runtime npm dependencies. By [Pareto Cybernetics](https://paretocybern
 
 ## Privacy
 
-This plugin sends no telemetry, analytics, crash reports, install IDs, or other usage data. It has no runtime npm dependencies and no analytics SDKs.
-
-- **Normal operation:** Nothing in this repository's own hooks, status line, pane activity publisher, or MCP bridge makes an outbound network call. They read and write only local files and local processes.
-- **Quota auto-resume (UltraTerm only):** After a confirmed quota reset, the bounded waiter can make one loopback-only HTTP POST to the local Antigravity CLI (`ConversationService/GetConversation`) to check that the session is still active, then use local `utp send` to resume that same terminal. Proxies and redirects are disabled for that request, and the in-memory CSRF token is never written to disk. Turn the feature off with `STEAK_ANTIGRAVITY_AUTO_RESUME=0`, or only its local check with `STEAK_ANTIGRAVITY_AUTO_RESUME_CHECK_LS=0`.
-- **Subagents and model calls:** USAP workers run through Steak Pi using the routing you configured in `~/.config/ultraterm/routing.json`. Your configured model provider receives the prompts and files you send it. That traffic is to your provider, not to this plugin.
-- **Installers:** `install.sh` / `install.ps1` download the release archive and `SHA256SUMS` from GitHub over HTTPS and verify the archive SHA-256 fail-closed (a same-origin checksum, not a signature). They make no other network calls.
-- **Local files:** Owner-only (`0700` dirs, `0600` files) under `~/.steak-antigravity/data/`: auto-resume timers (conversation ID, reset time, terminal ID and resume prompt, swept after 7 days), UI sync cursors, verify state and failure notes (capped, dropped after 7 days), pane activity state, and USAP session/event pointers. Non-PII quota and subagent-count snapshots go to `~/.ultraterm/antigravity/usage.json` and `~/.ultraterm/antigravity/panes/`. When UltraTerm UI Mode is active, prompts and tool output are mirrored to the `ULTRATERM_UI_TRANSCRIPT_FILE` it sets (created `0600` in a private dir); UltraTerm manages that transcript.
-- **Delete local data:** Run the installer with `--uninstall` (PowerShell: `-Uninstall`) to unwire the plugin and remove the managed install and CLI link, then delete `~/.steak-antigravity`, `~/.ultraterm/antigravity/usage.json`, `~/.ultraterm/antigravity/panes/`, and your UI transcript file if present.
+No telemetry, analytics, crash reports, install IDs, or analytics SDKs; normal operation makes no outbound network call.
+USAP model traffic goes only to the provider you configured in `~/.config/ultraterm/routing.json`; the plugin never runs parent inference.
+UltraTerm quota auto-resume can make one loopback-only local check; disable it with `STEAK_ANTIGRAVITY_AUTO_RESUME=0`.
+Installers fetch GitHub releases over HTTPS with fail-closed SHA-256 verification and make no other network calls.
+Local state is owner-only (`0600`/`0700`) and bounded; see [PRIVACY.md](PRIVACY.md) for every write, retention bound, and deletion step.
 
 ## USAP Overview & Native `/swarm` Coexistence
 

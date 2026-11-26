@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-11-26
+
+- Shorten `README.md` `## Privacy` to five plain lines with a link to the new `PRIVACY.md`, which documents verified egress/telemetry, installer checks, and every local write with its contents, lifetime, automatic retention bound, and deletion command.
+- Bound two previously unbounded local writes: idle `verify/*.json` counters and idle `ui-transcript-state/<session>.json` cursors (with their locks and crashed-hook temps) are now swept after 7 days; live pane cursors and the session being synced are preserved.
+- Add focused tests for the verify-counter and UI-cursor sweeps, and align `package.json` / `plugin.json` at 0.5.0.
+
 ## 0.4.2 - 2026-11-26
 
 - Add a `## Privacy` section to `README.md` documenting the verified network flows, local files, opt-outs, and deletion steps.
