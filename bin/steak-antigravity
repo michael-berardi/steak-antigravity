@@ -207,6 +207,48 @@ def cmd_install() -> int:
         return 1
 
 
+def _cli_bin_dir() -> Path:
+    raw = os.environ.get("STEAK_ANTIGRAVITY_BIN_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".local/bin"
+
+
+def _symlink_points_to_self(link: Path) -> bool:
+    target = ROOT / "bin/steak-antigravity"
+    try:
+        raw_target = os.readlink(link)
+    except OSError:
+        return False
+    if raw_target == str(target):
+        return True
+    try:
+        return link.resolve() == target.resolve()
+    except OSError:
+        return False
+
+
+def _install_cli_link(local_bin: Path) -> None:
+    if os.environ.get("STEAK_ANTIGRAVITY_SKIP_BIN_LINK") == "1":
+        return
+    local_bin.mkdir(parents=True, exist_ok=True)
+    link = local_bin / "steak-antigravity"
+    if not (link.is_symlink() or not link.exists()):
+        return
+    target = ROOT / "bin/steak-antigravity"
+    tmp_link = local_bin / f".steak-antigravity.{os.getpid()}.{time.time_ns()}.tmp"
+    try:
+        tmp_link.symlink_to(target)
+        os.replace(tmp_link, link)
+    except OSError:
+        try:
+            tmp_link.unlink()
+        except OSError:
+            pass
+        if os.name != "nt":
+            raise
+
+
 def _install() -> int:
     # Register plugin directory via plugins.json (parent directory containing steak-antigravity).
     # Note: plugins.json scans entries one level deep, so register the parent directory
@@ -237,14 +279,8 @@ def _install() -> int:
     # Wire official Antigravity statusLine snapshot writer (non-destructive).
     configure_statusline()
 
-    # Install CLI shim in ~/.local/bin.
-    local_bin = Path.home() / ".local/bin"
-    local_bin.mkdir(parents=True, exist_ok=True)
-    link = local_bin / "steak-antigravity"
-    if link.is_symlink() or not link.exists():
-        if link.is_symlink():
-            link.unlink()
-        link.symlink_to(ROOT / "bin/steak-antigravity")
+    # Install CLI shim in STEAK_ANTIGRAVITY_BIN_DIR (default ~/.local/bin).
+    _install_cli_link(_cli_bin_dir())
 
     print(f"steak-antigravity {version()} installed into {GEMINI_CONFIG}")
     return 0
@@ -269,10 +305,11 @@ def cmd_uninstall() -> int:
         ]
         write_entries_config(plugins_json, data)
     remove_statusline()
-    link = Path.home() / ".local/bin/steak-antigravity"
-    if link.is_symlink():
+    local_bin = _cli_bin_dir()
+    link = local_bin / "steak-antigravity"
+    if link.is_symlink() and _symlink_points_to_self(link):
         link.unlink()
-    print("steak-antigravity removed from ~/.gemini/config/plugins.json and ~/.local/bin")
+    print(f"steak-antigravity removed from {plugins_json} and {local_bin}")
     return 0
 
 

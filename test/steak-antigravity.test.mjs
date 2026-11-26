@@ -36,7 +36,7 @@ import {
 } from "../lib/usap-bridge.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const SKIP = new Set([".git", "node_modules", "__pycache__"]);
+const SKIP = new Set([".git", "node_modules", "__pycache__", "dist"]);
 const BRIDGE = join(ROOT, "lib/usap-bridge.mjs");
 const SESSION_UUID = "0f0e0d0c-0b0a-4908-8706-050403020100";
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 - 2026-11-26
+
+- Add checksum-verified one-liner installers (`install.sh` for macOS/Linux POSIX `sh`, `install.ps1` for Windows PowerShell 5.1/7+):
+  - Downloads `steak-antigravity.tar.gz` and `SHA256SUMS` over HTTPS (`--proto '=https' --tlsv1.2` / `--https-only`, plus `file://` for offline testing) and verifies SHA-256 fail-closed before touching disk.
+  - Rejects path-traversal archive entries, symlinks, git checkouts, foreign plugin directories, and unmanaged directories; stages and swaps atomically with unpredictable temp directories into `${STEAK_ANTIGRAVITY_HOME:-$HOME/.local/share/steak-antigravity}` (or `%LOCALAPPDATA%\steak-antigravity` on Windows) with automatic rollback on swap failure or interruption.
+  - Installs/updates the `steak-antigravity` CLI launcher in `${STEAK_ANTIGRAVITY_BIN_DIR:-$HOME/.local/bin}` without clobbering unrelated user files, wires Antigravity CLI (`steak-antigravity install`) unless `--no-wire`, checks Python/Node/`agy`/`PATH` prerequisites, and supports `--version`, `--dir`, `--bin-dir`, `--dry-run`, `--no-wire`, `--uninstall`, and `STEAK_ANTIGRAVITY_BASE_URL` for offline testing.
+- Update `bin/steak-antigravity` to honor `STEAK_ANTIGRAVITY_BIN_DIR`, replace CLI symlinks atomically, and only remove symlinks pointing to its own installation on `uninstall`.
+- Add deterministic release bundle builder (`scripts/build-release.sh`) producing `dist/steak-antigravity.tar.gz` (0 symlinks, 0 `node_modules`, includes `VERSION` + `COMMIT`), `install.sh`, `install.ps1`, and self-verified `SHA256SUMS` while refusing repo subdirectories or non-empty unrelated output folders.
+- Add zero-network offline installer test suite (`scripts/test-install.sh`) covering dry-run, fresh install, idempotent upgrade, tampered/missing/malformed/short/duplicate checksum rejection, traversal/absolute/symlink/`.git` archive rejection, non-HTTPS refusal, foreign-plugin and unsafe-dir refusal, swap-failure rollback, `--no-wire`, custom dirs, clean `--uninstall`, and `install.ps1` checks (`pwsh` when available).
+
 ## 0.3.0 - 2026-11-25
 
 - Zero-conflict native `/swarm` coexistence (`scripts/delegation_guard.py`, `rules/AGENTS.md`,

@@ -54,12 +54,54 @@ When an interactive `agy` session inside UltraTerm stops on a quota/capacity lim
   - Optional environment overrides: `STEAK_ANTIGRAVITY_AUTO_RESUME_BUFFER_SEC` (min `60`), `STEAK_ANTIGRAVITY_AUTO_RESUME_JITTER_SEC`, `STEAK_ANTIGRAVITY_AUTO_RESUME_MAX_WAIT_SEC`, `STEAK_ANTIGRAVITY_AUTO_RESUME_MAX_RETRIES`, `STEAK_ANTIGRAVITY_AUTO_RESUME_PROMPT`, `STEAK_ANTIGRAVITY_AUTO_RESUME_CHECK_LS=0`.
   - Inspect or cancel pending timers: `steak-antigravity doctor` or `steak-antigravity auto-resume [status|cancel]`.
 
-## Install
+## Quick Install
+
+**macOS / Linux:**
+
+```sh
+curl -fsSL https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.ps1 | iex
+```
+
+The installer downloads `steak-antigravity.tar.gz` and `SHA256SUMS`, verifies SHA-256 fail-closed before touching disk, swaps atomically into `~/.local/share/steak-antigravity` (`%LOCALAPPDATA%\steak-antigravity` on Windows), installs the `steak-antigravity` CLI into `~/.local/bin`, and runs `steak-antigravity install` to register hooks, skills, and MCP with Antigravity CLI. Re-running upgrades atomically.
+
+### Installer Options & Checksum Verification
+
+Pass flags with `sh -s -- ...` (or environment variables `STEAK_ANTIGRAVITY_VERSION`, `STEAK_ANTIGRAVITY_HOME`, `STEAK_ANTIGRAVITY_BIN_DIR`):
+
+```sh
+# Pin a version, preview without touching disk, or skip Antigravity wiring
+curl -fsSL https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh | sh -s -- --version v0.4.0 --dry-run
+curl -fsSL https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh | sh -s -- --no-wire --dir ~/.local/share/steak-antigravity --bin-dir ~/.local/bin
+
+# Verify release assets manually before running
+curl -fsSLO https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh
+curl -fsSLO https://github.com/michael-berardi/steak-antigravity/releases/latest/download/SHA256SUMS
+grep '  install\.sh$' SHA256SUMS | shasum -a 256 -c -
+sh install.sh
+```
+
+### Uninstall
+
+```sh
+curl -fsSL https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.sh | sh -s -- --uninstall
+```
+
+```powershell
+$env:STEAK_ANTIGRAVITY_UNINSTALL = '1'; irm https://github.com/michael-berardi/steak-antigravity/releases/latest/download/install.ps1 | iex; Remove-Item Env:STEAK_ANTIGRAVITY_UNINSTALL
+```
+
+### Local Clone / Direct Plugin Install
 
 ```sh
 git clone https://github.com/michael-berardi/steak-antigravity.git
 cd steak-antigravity
-./install.sh
+python3 -I -B ./bin/steak-antigravity install
 steak-antigravity doctor
 ```
 
@@ -80,4 +122,6 @@ in the operator's own `~/.config/ultraterm/routing.json`. A dedicated unit test
 
 ```sh
 npm test
+./scripts/build-release.sh
+./scripts/test-install.sh
 ```

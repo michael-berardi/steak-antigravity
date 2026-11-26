@@ -955,6 +955,37 @@ class TestInstallConfigSafety(unittest.TestCase):
             self.assertEqual(cli.remove_legacy_mcp_cache(root), [str(root / "steak-agy_usap")])
             self.assertTrue((root / "steak-antigravity_usap").is_dir())
 
+    def test_cli_bin_dir_and_safe_symlink_uninstall(self) -> None:
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory() as td:
+            custom_bin = Path(td) / "custom-bin"
+            other_target = Path(td) / "other-tool"
+            other_target.write_text("#!/bin/sh\necho other\n")
+            saved_bin = os.environ.get("STEAK_ANTIGRAVITY_BIN_DIR")
+            saved_skip = os.environ.get("STEAK_ANTIGRAVITY_SKIP_BIN_LINK")
+            try:
+                os.environ["STEAK_ANTIGRAVITY_BIN_DIR"] = str(custom_bin)
+                os.environ.pop("STEAK_ANTIGRAVITY_SKIP_BIN_LINK", None)
+                self.assertEqual(cli._cli_bin_dir(), custom_bin)
+                cli._install_cli_link(custom_bin)
+                link = custom_bin / "steak-antigravity"
+                self.assertTrue(link.is_symlink())
+                self.assertTrue(cli._symlink_points_to_self(link))
+
+                # Symlink pointing elsewhere must NOT be identified as ours.
+                foreign_link = Path(td) / "foreign-link"
+                foreign_link.symlink_to(other_target)
+                self.assertFalse(cli._symlink_points_to_self(foreign_link))
+            finally:
+                if saved_bin is None:
+                    os.environ.pop("STEAK_ANTIGRAVITY_BIN_DIR", None)
+                else:
+                    os.environ["STEAK_ANTIGRAVITY_BIN_DIR"] = saved_bin
+                if saved_skip is None:
+                    os.environ.pop("STEAK_ANTIGRAVITY_SKIP_BIN_LINK", None)
+                else:
+                    os.environ["STEAK_ANTIGRAVITY_SKIP_BIN_LINK"] = saved_skip
+
 
 class TestDelegationGuardReadiness(unittest.TestCase):
     def test_allows_native_subagents_when_node_missing(self) -> None:
