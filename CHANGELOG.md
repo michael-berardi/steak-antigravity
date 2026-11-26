@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 - 2026-11-26
+
+- Add a `## Privacy` section to `README.md` documenting the verified network flows, local files, opt-outs, and deletion steps.
+- Add a shipped-source test that fails if telemetry/analytics packages or endpoints (PostHog, Sentry, Segment, Mixpanel, Amplitude, Datadog, Bugsnag, Google Analytics, OpenTelemetry, etc.) are reintroduced.
+- Set `DO_NOT_TRACK=1`, `HOMEBREW_NO_ANALYTICS=1`, `NEXT_TELEMETRY_DISABLED=1`, and `HF_HUB_DISABLE_TELEMETRY=1` for tools invoked by both installers (restoring the caller's values in PowerShell) and for the Pi SDK bridge; add a bounded 7-day retention window for undelivered verify failure notes.
+- Align `package.json` and `plugin.json` at 0.4.2.
+
 ## 0.4.1 - 2026-11-26
 
 - Add ToS-safe per-pane live subagent activity publishing for UltraTerm (`lib/pane_activity.py`, `scripts/antigravity_statusline.py`, `scripts/session_start.py`, `scripts/ui_transcript_sync.py`, `scripts/stop_hook.py`):

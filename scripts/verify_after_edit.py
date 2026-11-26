@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -91,10 +92,33 @@ def load_config(cwd: Path) -> dict | None:
     }
 
 
+def sweep_stale_pending_notes(state_dir: Path, now: float | None = None) -> None:
+    """Drop undelivered verify failure notes older than the retention window."""
+    ref = time.time() if now is None else now
+    try:
+        entries = list(state_dir.glob("*.pending.json"))
+    except OSError:
+        return
+    for pending in entries:
+        try:
+            st = os.lstat(pending)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_nlink != 1:
+                continue
+            if ref - st.st_mtime < ut_common.PENDING_NOTE_MAX_AGE_SECONDS:
+                continue
+            os.unlink(pending)
+            lock = pending.with_suffix(".lock")
+            if lock.is_file() and not lock.is_symlink():
+                os.unlink(lock)
+        except OSError:
+            continue
+
+
 def queue_failure_note(state_dir: Path, conv_id: str, message: str) -> None:
     """PostToolUse output never reaches the model; queue the failure for the next PreInvocation hook."""
     import fcntl
 
+    sweep_stale_pending_notes(state_dir)
     pending = state_dir / f"{conv_id}.pending.json"
     lock = pending.with_suffix(".lock")
     try:

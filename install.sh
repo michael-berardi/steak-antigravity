@@ -7,6 +7,12 @@
 # Never uses sudo or edits shell profiles. Re-running upgrades atomically.
 set -eu
 
+# Never let a tool we invoke (curl/wget, python helpers, Node hints) send its own usage analytics.
+DO_NOT_TRACK=1; export DO_NOT_TRACK
+HOMEBREW_NO_ANALYTICS=1; export HOMEBREW_NO_ANALYTICS
+NEXT_TELEMETRY_DISABLED=1; export NEXT_TELEMETRY_DISABLED
+HF_HUB_DISABLE_TELEMETRY=1; export HF_HUB_DISABLE_TELEMETRY
+
 REPO="michael-berardi/steak-antigravity"
 NAME="steak-antigravity"
 ARCHIVE="$NAME.tar.gz"

@@ -4,6 +4,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -910,6 +911,17 @@ class TestVerifyFailureReachesAgent(unittest.TestCase):
             state_path.write_text(json.dumps(["not", "a", "dict"]))
             res4 = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
             self.assertEqual(res4.stdout.strip(), "{}")
+
+    def test_undelivered_verify_note_expires_after_seven_days(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data = Path(td) / "pdata"
+            (data / "verify").mkdir(parents=True, mode=0o700)
+            pending = data / "verify" / "old.pending.json"
+            pending.write_text(json.dumps({"failures": ["old verify output"]}))
+            old = time.time() - 8 * 24 * 3600
+            os.utime(pending, (old, old))
+            self.assertEqual(ui_transcript_sync.drain_verify_failures(data_dir=data, conversation_id="old"), [])
+            self.assertFalse(pending.exists())
 
 
 class TestTranscriptRobustness(unittest.TestCase):

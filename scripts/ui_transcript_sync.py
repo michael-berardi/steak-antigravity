@@ -133,6 +133,12 @@ def drain_verify_failures(data_dir: Path | None = None, conversation_id: str = "
         with file_lock(path.with_suffix(".lock")):
             if not path.is_file() or path.is_symlink():
                 return []
+            try:
+                if time.time() - os.lstat(path).st_mtime >= ut_common.PENDING_NOTE_MAX_AGE_SECONDS:
+                    os.unlink(path)
+                    return []
+            except OSError:
+                pass
             state = load_state(path)
             os.unlink(path)
     except OSError as exc:

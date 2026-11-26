@@ -26,6 +26,9 @@ UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 _pinned_socket: str | None = None
 
+# Undelivered hook notes (verify failure output) are dropped after this many seconds.
+PENDING_NOTE_MAX_AGE_SECONDS = 7 * 24 * 3600
+
 
 def plugin_data_dir() -> Path:
     configured = os.environ.get("PLUGIN_DATA", "").strip()

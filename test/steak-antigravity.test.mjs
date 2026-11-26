@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -266,6 +266,31 @@ describe("steak-antigravity manifest & contracts", () => {
         assert.ok(!rx.test(content), `Provider-neutrality violation (${rx}) in ${file}`);
       }
     }
+  });
+
+  it("ships no telemetry or analytics packages/endpoints", () => {
+    const forbidden = [
+      /\b(?:posthog-js|posthog-node|posthog-python|sentry-sdk|sentry-cli|mixpanel|amplitude-js|analytics-node|bugsnag-js|firebase-analytics|opentelemetry|open-telemetry|google-analytics|gtag)\b/i,
+      /@(?:sentry|opentelemetry|segment|posthog|datadog|bugsnag)\//i,
+      /(?:posthog\.com|sentry\.io|segment\.io|mixpanel\.com|amplitude\.com|datadoghq\.com|bugsnag\.com|google-analytics\.com|googletagmanager\.com|analytics\.googleapis\.com)/i,
+      /\btelemetry[-\s]?(?:exporter|sdk|endpoint)\b/i,
+    ];
+    const shipped = [];
+    for (const file of walk(ROOT)) {
+      const rel = file.slice(ROOT.length).split(sep);
+      if (rel[0] === "test" || rel[0] === "dist" || rel[0] === ".git") continue;
+      if (!/\.(?:mjs|py|sh|ps1|json)$/.test(file) && basename(file) !== "steak-antigravity") continue;
+      shipped.push(file);
+      const content = readFileSync(file, "utf8");
+      for (const rx of forbidden) {
+        assert.ok(!rx.test(content), `Telemetry/analytics reference (${rx}) in shipped file ${file}`);
+      }
+    }
+    assert.ok(shipped.length > 10, "shipped source scan unexpectedly empty");
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    assert.equal(pkg.dependencies, undefined, "package.json must not add runtime dependencies");
+    assert.equal(pkg.devDependencies, undefined, "package.json must not add telemetry-bearing dev dependencies");
+    assert.ok(!JSON.stringify(pkg).match(/posthog|sentry|segment|mixpanel|amplitude|datadog|bugsnag|analytics|opentelemetry/i), "package.json must stay telemetry-free");
   });
 
   it("keeps package.json, plugin.json, CHANGELOG.md, and MCP serverInfo versions aligned", () => {

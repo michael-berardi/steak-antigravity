@@ -1,6 +1,6 @@
 {
   "name": "steak-antigravity",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Steak Antigravity: a provider-neutral Antigravity CLI (agy) plugin adding Steak Pi and UltraTerm parity \u2014 USAP subagents, UTP messaging, UI Mode transcript publishing, verify-after-edit, owned paths, finish guard, and shared rules/skills integration.",
   "license": "MIT",
   "author": "Pareto Cybernetics",
