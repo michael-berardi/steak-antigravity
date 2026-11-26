@@ -4,6 +4,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,37 @@ class TestUiTranscriptSync(unittest.TestCase):
     def tearDown(self) -> None:
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_stale_ui_transcript_state_is_swept_but_live_cursors_survive(self) -> None:
+        base = self.data_dir / "ui-transcript-state"
+        base.mkdir(mode=0o700)
+        old_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        live_id = "11111111-2222-3333-4444-555555555555"
+        current_id = "22222222-3333-4444-5555-666666666666"
+        stale = base / f"{old_id}.json"
+        stale.write_text(json.dumps({"conversationId": "old", "ownerPid": 2_147_483_647}))
+        stale_lock = stale.with_suffix(".lock")
+        stale_lock.write_text("")
+        stale_tmp = base / f".{old_id}.json.123.456.tmp"
+        stale_tmp.write_text("partial")
+        live = base / f"{live_id}.json"
+        live.write_text(json.dumps({"conversationId": "live", "ownerPid": os.getpid()}))
+        current = base / f"{current_id}.json"
+        current.write_text(json.dumps({"conversationId": "current"}))
+        old = time.time() - 8 * 24 * 3600
+        for path in (stale, stale_lock, stale_tmp, live, current):
+            os.utime(path, (old, old))
+        removed = ui_transcript_sync.sweep_stale_ui_states(
+            base,
+            now=time.time(),
+            keep_session_id=current_id,
+        )
+        self.assertGreaterEqual(removed, 3)
+        self.assertFalse(stale.exists())
+        self.assertFalse(stale_lock.exists())
+        self.assertFalse(stale_tmp.exists())
+        self.assertTrue(live.exists(), "cursor whose owning pane PID is alive must survive")
+        self.assertTrue(current.exists(), "cursor for the session being synced must survive")
 
     def test_publishes_valid_pi_rows_and_rotates_on_new_conversation(self) -> None:
         src = self.tmp / "transcript.jsonl"
@@ -910,6 +942,37 @@ class TestVerifyFailureReachesAgent(unittest.TestCase):
             state_path.write_text(json.dumps(["not", "a", "dict"]))
             res4 = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)
             self.assertEqual(res4.stdout.strip(), "{}")
+
+    def test_idle_verify_counters_expire_after_seven_days(self) -> None:
+        import verify_after_edit
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "pdata" / "verify"
+            state_dir.mkdir(parents=True, mode=0o700)
+            stale = state_dir / "old.json"
+            stale.write_text(json.dumps({"consecutive": 3, "lastRunMs": 1}))
+            fresh = state_dir / "fresh.json"
+            fresh.write_text(json.dumps({"consecutive": 1, "lastRunMs": 2}))
+            pending = state_dir / "queued.pending.json"
+            pending.write_text(json.dumps({"failures": ["still queued"]}))
+            old = time.time() - 8 * 24 * 3600
+            for path in (stale, pending):
+                os.utime(path, (old, old))
+            self.assertEqual(verify_after_edit.sweep_stale_verify_state(state_dir, now=time.time()), 1)
+            self.assertFalse(stale.exists())
+            self.assertTrue(fresh.exists())
+            self.assertTrue(pending.exists(), "undelivered notes have their own 7-day sweep")
+
+    def test_undelivered_verify_note_expires_after_seven_days(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data = Path(td) / "pdata"
+            (data / "verify").mkdir(parents=True, mode=0o700)
+            pending = data / "verify" / "old.pending.json"
+            pending.write_text(json.dumps({"failures": ["old verify output"]}))
+            old = time.time() - 8 * 24 * 3600
+            os.utime(pending, (old, old))
+            self.assertEqual(ui_transcript_sync.drain_verify_failures(data_dir=data, conversation_id="old"), [])
+            self.assertFalse(pending.exists())
 
 
 class TestTranscriptRobustness(unittest.TestCase):

@@ -1,44 +1,35 @@
 # Privacy
 
-Steak Antigravity sends no telemetry, analytics, crash reports or install IDs.
+`steak-antigravity` has no telemetry, analytics, crash reporting, install IDs, or analytics SDKs. This file records every outbound request and every local write made by the plugin itself; prompts and files you send to a model are handled by your configured provider, not by this plugin.
 
-## Update check
+## Egress and telemetry
 
-- **What is sent:** one anonymous HTTPS `GET` to
-  `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where
-  `<owner>/<repo>` comes from `package.json`. The User-Agent is
-  `steak-antigravity-update-check`. There are no cookies, tokens, IDs, installed
-  version, usage or machine data. GitHub sees the request's IP address, as it
-  does for any HTTPS request.
-- **When:** at most once every 24 hours. It starts from the interactive agy status
-  line or after a `steak-antigravity` command on a terminal. It never runs in the
-  `SessionStart` hook, in print or headless runs, in CI, or for agent workers.
-- **Turning it off:** set `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1`, or add
-  `"updates": {"checkAutomatically": false}` to `~/.steak-antigravity/config.json`.
-- **Updating:** `steak-antigravity update`, or an automatic update you turned on,
-  downloads the release's installer, `SHA256SUMS` and archive from GitHub.
+- **Update check:** the plugin's only internet request of its own is one anonymous HTTPS `GET` to `https://api.github.com/repos/<owner>/<repo>/releases/latest`, at most once every 24 hours (`<owner>/<repo>` comes from `package.json`). The User-Agent is `steak-antigravity-update-check`. There are no cookies, tokens, IDs, installed version, usage or machine data; GitHub sees the request's IP address, as it does for any HTTPS request. It starts from the interactive agy status line or after a `steak-antigravity` command on a terminal, as a detached low-priority process with a 4-second timeout. It never runs in the `SessionStart` hook, in print or headless runs, in CI (`CI`), or for agent workers (`CLAUDECODE`, `ULTRATERM_JOB_ID`, `UT_COORDINATOR_JOB_ID`). Turn it off with `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1`, or add `"updates": {"checkAutomatically": false}` to `~/.steak-antigravity/config.json`. See [docs/updates.md](docs/updates.md).
+- **Updating:** `steak-antigravity update`, or an automatic update you turned on (off by default), downloads the release's installer, `SHA256SUMS` and archive from GitHub over HTTPS and verifies the installer's SHA-256 before running it.
+- **Everything else:** apart from the update check, the hooks, status line, pane-activity publisher, and USAP MCP bridge make no internet requests. They read and write local files and talk only to local processes.
+- **Model/provider traffic:** USAP workers run through Steak Pi using the routing you configured in `~/.config/ultraterm/routing.json`. Prompts, files, and tool output you send to a model go to that provider. The USAP parent is a fail-closed stand-in and never runs parent inference through Pi.
+- **Quota auto-resume (UltraTerm only):** After a confirmed quota reset, the bounded single-shot waiter can make exactly one loopback-only HTTP POST to the local Antigravity CLI (`ConversationService/GetConversation`) to check that the session is still active, then use local `utp send --id … --expected-id …` to resume that same terminal. HTTP proxies and redirects are disabled for the check, the CSRF token stays in memory, and no remote API is polled. Turn the feature off with `STEAK_ANTIGRAVITY_AUTO_RESUME=0`, or just the local check with `STEAK_ANTIGRAVITY_AUTO_RESUME_CHECK_LS=0`.
+- **Installers:** `install.sh` / `install.ps1` fetch only `steak-antigravity.tar.gz` and `SHA256SUMS` from GitHub over HTTPS, verify the archive's SHA-256 fail-closed (a same-origin checksum, not a signature), and make no other network calls. Both set `DO_NOT_TRACK=1`, `HOMEBREW_NO_ANALYTICS=1`, `NEXT_TELEMETRY_DISABLED=1`, and `HF_HUB_DISABLE_TELEMETRY=1` for tools they invoke; PowerShell restores your previous values. The Pi SDK bridge sets only `DO_NOT_TRACK` and `NEXT_TELEMETRY_DISABLED`, and only when you have not set them.
 
-## Local files
+## Storage and permissions
 
-- `update-check.json` in the platform cache folder: last check time, latest
-  version, last error, and when the notice was last shown (`0600`).
-- `update.log` in the same folder, only for automatic updates, kept under 256 KB.
-- The `updates` section of `~/.steak-antigravity/config.json`.
-- `<install dir>.previous`, one rollback copy, removed once the new version has
-  run (7 days at most).
+Plugin-owned runtime state lives under `~/.steak-antigravity/data/` (or `PLUGIN_DATA` when set). Plugin-owned files are `0600` inside `0700` directories, written atomically with owner/symlink checks. Update-check state lives in the platform cache folder (`~/Library/Caches/steak-antigravity` on macOS, `${XDG_CACHE_HOME:-~/.cache}/steak-antigravity` on Linux, `%LOCALAPPDATA%\steak-antigravity` on Windows). Non-PII status snapshots live under `~/.ultraterm/antigravity/`. When UltraTerm UI Mode is active, prompts and tool output are mirrored to the `ULTRATERM_UI_TRANSCRIPT_FILE` it sets (created `0600` in a private directory); UltraTerm owns that transcript and rotates it on `/new`.
 
-`steak-antigravity update --auto off` deletes the log. `steak-antigravity uninstall`
-(also run by `install.sh --uninstall`) deletes the cache, the log and the update
-settings. See [docs/updates.md](docs/updates.md) for details.
+| Local write | Contents | Lifetime | Automatic cleanup / retention bound | Delete manually |
+| --- | --- | --- | --- | --- |
+| `<cache folder>/update-check.json` | Last check time, latest version, last error, when the notice was last shown. | Until uninstall. | One file, overwritten in place on each check (at most daily). | `steak-antigravity uninstall`, or delete the cache folder. |
+| `<cache folder>/update.log` | Automatic-update results only (written only when automatic updates are on). | Until `update --auto off` or uninstall. | Kept under 256 KB; `update --auto off` deletes it. | `steak-antigravity update --auto off`. |
+| `updates` section of `~/.steak-antigravity/config.json` | Skipped version, automatic updates on/off, the check switch. | Until uninstall. | Single settings object, no history. | `steak-antigravity uninstall`. |
+| `<install dir>.previous` | One rollback copy of the previous install. | Until the new version has run, 7 days at most. | Never more than one; removed by the new version and by `--uninstall`. Update downloads go to a temporary folder deleted on success and failure. | `rm -rf ~/.local/share/steak-antigravity.previous`. |
+| `~/.steak-antigravity/data/auto-resume/<conversation>.json` (+ `.lock`) | Conversation ID, server reset/wake times, terminal ID, resume prompt, token, waiter PID, status. | Until it fires or is cancelled; otherwise at most 7 days idle. | Stale states are swept on every new schedule; a still-running waiter is exempt. Cancellation rewrites the same file; no history accumulates. | `steak-antigravity auto-resume cancel`, then `rm -rf ~/.steak-antigravity/data/auto-resume`. |
+| `~/.steak-antigravity/data/verify/<conversation>.pending.json` (+ `.pending.lock`) | Last 3 undelivered verify-failure messages and command output tail. | Until the next `PreInvocation` drain or 7 days idle. | Drained once; stale notes are swept when notes are queued or drained and are capped at 3 messages. | `rm -rf ~/.steak-antigravity/data/verify`. |
+| `~/.steak-antigravity/data/verify/<conversation>.json` | Consecutive failure count and last-run timestamp only. | 7 days after the last verify run. | Swept on every trusted verify hook; one counter file per conversation, overwritten in place. | `rm -rf ~/.steak-antigravity/data/verify`. |
+| `~/.steak-antigravity/data/ui-transcript-state/<session>.json` (+ `.lock`, `.*.tmp`) | UI session ID, source transcript byte offset, row sequence/last ID, up to 256 pending tool calls, owning pane PID. | While the UI session is active; otherwise 7 days after the last sync. | Stale cursors, their locks, and crashed-hook temps are swept on the next sync; the current session and cursors with a live owning PID are preserved. | `rm -rf ~/.steak-antigravity/data/ui-transcript-state` (resets cursors; the next sync may replay from the start of the source transcript). |
+| `~/.steak-antigravity/data/pane-activity/<tmux-session>.json` (+ `.lock`, `.*.tmp`) | 16-character SHA-256 conversation hashes, child leases, status-line counts; no prompts, IDs, paths, or titles. | Per live `agy` pane process; child leases 15 minutes, completed-child hashes 6 hours. | Maps are pruned on every hook/status-line event (max 256 hashes); dead-pane snapshots are swept at `SessionStart`; temps older than 1 hour are swept after writes. | `rm -rf ~/.steak-antigravity/data/pane-activity`. |
+| `~/.ultraterm/antigravity/panes/<tmux-session>.json` | Owning PID, timestamp, active/inactive/task counts, allowlisted agent state; no PII. | Until the owning `agy` process exits. | Removed by the dead-pane sweep at `SessionStart`. | `rm -rf ~/.ultraterm/antigravity/panes`. |
+| `~/.steak-antigravity/data/usap-events/<pid>.jsonl`, `<pid>.cursor.json`, `<pid>.lock` | Metadata-only `{ kind, runIds, taskCount, doneCount, failedCount, at }` pointers; never worker text. | Until the parent PID exits, then up to 24 hours. | Swept when the USAP bridge starts: dead-PID event/cursor/lock files after 24 hours, bridge temps after 1 hour. Each drain reads at most 2,000 lines / 4 MiB and at most 16 run IDs per notice. | `rm -rf ~/.steak-antigravity/data/usap-events`. |
+| `~/.steak-antigravity/data/usap/<session>.json`, `usap/by-pid/<pid>.json` (+ temps) | Host USAP session-file pointer and parent-PID → session map. | While the parent PID is alive; temp files at most 1 hour. | Bridge-start sweep removes dead-PID maps and temp files older than 1 hour. | `rm -rf ~/.steak-antigravity/data/usap`. |
+| `~/.ultraterm/antigravity/usage.json` | Non-PII quota percentages and reset timestamps from the CLI's official `statusLine`. | Overwritten on each status-line call; no history. | Fixed single-file snapshot, no append log. | `rm -f ~/.ultraterm/antigravity/usage.json`. |
+| `$ULTRATERM_UI_TRANSCRIPT_FILE` | Conversation rows published in `ultraterm.transcript/1` format. | UltraTerm-managed session transcript. | UltraTerm owns the file; the plugin creates it `0600`, appends incrementally, and rotates it atomically on `/new`. | Remove the file directly if desired. |
 
-## Everything else
-
-- Apart from the update check, the hooks, status line, pane activity and MCP
-  bridge read and write only local files and talk only to local processes.
-- Quota auto-resume (UltraTerm only) can make one loopback HTTP request to the
-  local Antigravity CLI to check that the session is still active
-  (`STEAK_ANTIGRAVITY_AUTO_RESUME=0` turns the feature off).
-- USAP subagents run through Steak Pi with the model routing you configured, so
-  your provider receives the prompts and files you send it.
-- `install.sh` and `install.ps1` download the release archive and `SHA256SUMS`
-  from GitHub over HTTPS.
+Installer wiring (`~/.local/share/steak-antigravity`, the `steak-antigravity` CLI link, and Antigravity `plugins.json` / `skills.json` / `statusLine` entries) is not usage data. `steak-antigravity uninstall` (also run by `install.sh --uninstall`) deletes the update cache, the log and the `updates` settings. Run the installer with `--uninstall` (PowerShell: `-Uninstall`) to unwire the plugin and remove only its managed install (plus, with `install.sh`, its `.previous` copy) and the CLI link, then delete the runtime directories listed above plus your UI transcript file if you want all local data gone.

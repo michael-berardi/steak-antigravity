@@ -87,6 +87,9 @@ def main() -> None:
     parent_model = os.environ.get("ULTRATERM_HARNESS_PROFILE") or "antigravity"
     os.environ["STEAK_ANTIGRAVITY_PARENT_PID"] = str(os.getppid())
     os.environ["STEAK_ANTIGRAVITY_WORKSPACE_CWD"] = workspace_cwd
+    # Request no tracking from the third-party Pi SDK / Steak Pi code this bridge execs.
+    os.environ.setdefault("DO_NOT_TRACK", "1")
+    os.environ.setdefault("NEXT_TELEMETRY_DISABLED", "1")
     # Workers spawned through this bridge never need the operator's tmux pane server.
     # Drop TMUX/TMUX_PANE after pane discovery and keep ~/.ultraterm/bin ahead of Homebrew on PATH.
     os.environ.pop("TMUX", None)

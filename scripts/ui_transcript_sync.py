@@ -40,6 +40,7 @@ MAX_SYNC_LINES = 2000
 MAX_PENDING_CALLS = 256
 _FRAC_RE = re.compile(r"\.(\d+)")
 _SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+UI_STATE_MAX_AGE_SECONDS = ut_common.LOCAL_DATA_MAX_AGE_SECONDS
 
 
 def safe_int(value: object, default: int = 0) -> int:
@@ -101,9 +102,107 @@ def validate_ui_target(file_path: Path, session_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+
+
+def _lock_is_free(path: Path) -> bool:
+    """Best-effort check that no live hook holds `path` before removing a stale lock."""
+    if not path.is_file() or path.is_symlink():
+        return True
+    try:
+        fd = os.open(path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def sweep_stale_ui_states(
+    base: Path,
+    now: float | None = None,
+    *,
+    keep_session_id: str = "",
+) -> int:
+    """Drop idle UI cursors, their locks, and crashed-hook temp files older than 7 days.
+
+    A cursor for a session whose recorded pane PID is still alive, or for the session
+    being synced right now, is preserved so an idle long-running pane never loses its
+    source-transcript offset.
+    """
+    ref = time.time() if now is None else now
+    cutoff = ref - UI_STATE_MAX_AGE_SECONDS
+    removed = 0
+    try:
+        entries = list(base.iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") and name.endswith(".tmp"):
+            try:
+                st = os.lstat(entry)
+                if stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_mtime < cutoff:
+                    os.unlink(entry)
+                    removed += 1
+            except OSError:
+                pass
+            continue
+        if not name.endswith(".json"):
+            continue
+        session_id = name[: -len(".json")]
+        if not ut_common.UUID_RE.fullmatch(session_id) or session_id == keep_session_id:
+            continue
+        try:
+            st = os.lstat(entry)
+            if (
+                stat.S_ISLNK(st.st_mode)
+                or not stat.S_ISREG(st.st_mode)
+                or st.st_uid != os.getuid()
+                or st.st_mtime >= cutoff
+            ):
+                continue
+            owner_pid = load_state(entry).get("ownerPid")
+            if (
+                isinstance(owner_pid, int)
+                and not isinstance(owner_pid, bool)
+                and _pid_is_alive(owner_pid)
+            ):
+                continue
+            lock = entry.with_suffix(".lock")
+            if not _lock_is_free(lock):
+                continue
+            os.unlink(entry)
+            removed += 1
+            try:
+                lst = os.lstat(lock)
+                if stat.S_ISREG(lst.st_mode) and lst.st_mtime < cutoff:
+                    os.unlink(lock)
+                    removed += 1
+            except OSError:
+                pass
+        except OSError:
+            continue
+    return removed
+
+
 def state_file_for(session_id: str, data_dir: Path | None = None) -> Path:
     base = (data_dir or ut_common.plugin_data_dir()) / "ui-transcript-state"
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    sweep_stale_ui_states(base, keep_session_id=session_id)
     return base / f"{session_id}.json"
 
 
@@ -133,6 +232,12 @@ def drain_verify_failures(data_dir: Path | None = None, conversation_id: str = "
         with file_lock(path.with_suffix(".lock")):
             if not path.is_file() or path.is_symlink():
                 return []
+            try:
+                if time.time() - os.lstat(path).st_mtime >= ut_common.PENDING_NOTE_MAX_AGE_SECONDS:
+                    os.unlink(path)
+                    return []
+            except OSError:
+                pass
             state = load_state(path)
             os.unlink(path)
     except OSError as exc:
@@ -372,6 +477,7 @@ def sync_transcript(
         return False
 
     sf = state_file_for(ui_session_id, data_dir)
+    owner_pid = pane_activity.resolve_owned_pane_pid()
     with file_lock(sf.with_suffix(".lock")):
         state = load_state(sf)
         prev_conv = state.get("conversationId") or ""
@@ -391,6 +497,7 @@ def sync_transcript(
                 "lastId": None,
                 "pendingCalls": [],
                 "turnOpen": False,
+                "ownerPid": owner_pid,
             }
         else:
             st = os.lstat(ui_file)
@@ -424,6 +531,7 @@ def sync_transcript(
                     "lastId": None,
                     "pendingCalls": [],
                     "turnOpen": False,
+                    "ownerPid": owner_pid,
                 }
 
         new_rows: list[dict] = []
@@ -527,6 +635,8 @@ def sync_transcript(
 
         if new_rows:
             append_rows(ui_file, new_rows)
+        if owner_pid is not None and state.get("ownerPid") != owner_pid:
+            state["ownerPid"] = owner_pid
         save_state(sf, state)
         return True
 

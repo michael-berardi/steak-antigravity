@@ -31,8 +31,18 @@ function Invoke-SteakAntigravityInstaller {
   $savedProgressPref = $ProgressPreference
   $savedBinEnv = [Environment]::GetEnvironmentVariable('STEAK_ANTIGRAVITY_BIN_DIR')
   $savedSkipEnv = [Environment]::GetEnvironmentVariable('STEAK_ANTIGRAVITY_SKIP_BIN_LINK')
+  $savedDnt = [Environment]::GetEnvironmentVariable('DO_NOT_TRACK')
+  $savedHomebrewAnalytics = [Environment]::GetEnvironmentVariable('HOMEBREW_NO_ANALYTICS')
+  $savedNextTelemetry = [Environment]::GetEnvironmentVariable('NEXT_TELEMETRY_DISABLED')
+  $savedHfTelemetry = [Environment]::GetEnvironmentVariable('HF_HUB_DISABLE_TELEMETRY')
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'
+
+  # Never let a tool we invoke send its own usage analytics; restore the caller's values below.
+  [Environment]::SetEnvironmentVariable('DO_NOT_TRACK', '1')
+  [Environment]::SetEnvironmentVariable('HOMEBREW_NO_ANALYTICS', '1')
+  [Environment]::SetEnvironmentVariable('NEXT_TELEMETRY_DISABLED', '1')
+  [Environment]::SetEnvironmentVariable('HF_HUB_DISABLE_TELEMETRY', '1')
 
   $repo = 'michael-berardi/steak-antigravity'
   $name = 'steak-antigravity'
@@ -499,6 +509,10 @@ Environment overrides (useful with irm ... | iex):
     if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue }
     [Environment]::SetEnvironmentVariable('STEAK_ANTIGRAVITY_BIN_DIR', $savedBinEnv)
     [Environment]::SetEnvironmentVariable('STEAK_ANTIGRAVITY_SKIP_BIN_LINK', $savedSkipEnv)
+    [Environment]::SetEnvironmentVariable('DO_NOT_TRACK', $savedDnt)
+    [Environment]::SetEnvironmentVariable('HOMEBREW_NO_ANALYTICS', $savedHomebrewAnalytics)
+    [Environment]::SetEnvironmentVariable('NEXT_TELEMETRY_DISABLED', $savedNextTelemetry)
+    [Environment]::SetEnvironmentVariable('HF_HUB_DISABLE_TELEMETRY', $savedHfTelemetry)
     $ProgressPreference = $savedProgressPref
     $ErrorActionPreference = $savedErrorPref
   }

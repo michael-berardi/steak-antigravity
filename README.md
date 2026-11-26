@@ -22,7 +22,7 @@ MIT. Zero runtime npm dependencies. By [Pareto Cybernetics](https://paretocybern
 | **Finish guard** | `scripts/stop_hook.py` | Checks open Steak Pi todo items and Antigravity's own `update_steps` plan before stopping (bounded to 3 nudges; respects `continuationActive` and `STEAK_ANTIGRAVITY_FINISH_GUARD=0`). |
 | **Quota auto-resume** | `lib/auto_resume.py` + `scripts/auto_resume_waiter.py` | Enabled by default inside UltraTerm: on a confirmed quota-exhaustion `Stop` (`ERROR`), waits strictly past the server-reported reset time plus a conservative safety buffer (`>= 60s`, default `65s` + `0..25s` jitter) and issues one identity-bound `utp send` resume. No remote API polling or persistent daemons (one bounded single-shot waiter checking local files/PID every 30s); cancels on user interaction, `HOLD`, session exit, or opt-out (`STEAK_ANTIGRAVITY_AUTO_RESUME=0`). |
 | **USAP delegation guard** | `scripts/delegation_guard.py` | Steers `invoke_subagent` to USAP when active inside UltraTerm (`STEAK_ANTIGRAVITY_ALLOW_NATIVE_SUBAGENTS=1` overrides) while leaving explicit Antigravity `/swarm` tools (`swarm`, `post_message`, `read_board`, `swarm_wait`) unblocked. |
-| **Live pane subagent telemetry** | `lib/pane_activity.py` + `scripts/antigravity_statusline.py` + lifecycle hooks | Publishes strictly non-PII, PID-bound per-pane active subagent/swarm counts to `~/.ultraterm/antigravity/panes/<tmux-session>.json` (`0600` in `0700` dir, `O_NOFOLLOW`) using only official `statusLine` JSON and `hooks.json` lifecycle events so UltraTerm displays live subagent counts on Antigravity panes with zero binary wrapping or network calls. |
+| **Live pane subagent counts** | `lib/pane_activity.py` + `scripts/antigravity_statusline.py` + lifecycle hooks | Publishes strictly non-PII, PID-bound per-pane active subagent/swarm counts to `~/.ultraterm/antigravity/panes/<tmux-session>.json` (`0600` in `0700` dir, `O_NOFOLLOW`) using only official `statusLine` JSON and `hooks.json` lifecycle events so UltraTerm displays live subagent counts on Antigravity panes with zero binary wrapping or network calls. |
 
 ## USAP Overview & Native `/swarm` Coexistence
 
@@ -128,9 +128,11 @@ See [docs/updates.md](docs/updates.md).
 
 ## Privacy
 
-No telemetry. The plugin's only internet request of its own is a daily anonymous
-check of its public GitHub release record: no IDs, versions or usage data. Turn it
-off with `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1`. Details: [PRIVACY.md](PRIVACY.md).
+No telemetry, analytics, crash reports or install IDs.
+The plugin's only internet request of its own is one anonymous daily check of its public GitHub release record (no IDs, versions or usage data); turn it off with `STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1`.
+USAP model traffic goes only to the provider you configured; quota auto-resume makes one loopback-only local check.
+Local state is small, owner-only (`0600`/`0700`) and bounded; idle hook state is swept within 7 days.
+Every local write, its retention bound and how to delete it: [PRIVACY.md](PRIVACY.md).
 
 ## Testing
 

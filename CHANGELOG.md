@@ -8,7 +8,11 @@
   - `update` shows the release notes, asks on a TTY, and verifies the downloaded installer against `SHA256SUMS` before running it. `update --check` exits 0/10/1. `--auto on|off|status`: automatic updates are off by default. `--rollback` restores the kept copy. Git checkouts and npm/Homebrew installs are not overwritten.
 - `install.sh` keeps exactly one `<dir>.previous` rollback copy, which the new version removes after its first run (7 days at most). `--uninstall` removes it too.
 - No debris: one cache file, a temporary download folder removed on success and failure, an auto-update log under 256 KB, and `uninstall` deletes the cache, log and update settings.
-- Add `PRIVACY.md`. The README Privacy section is short and links to it.
+- Privacy:
+  - Add `PRIVACY.md`, documenting the anonymous daily update check and its opt-out, every other network flow, installer checks, and every local write with its contents, lifetime, automatic retention bound, and deletion command. The README `## Privacy` section is a few plain lines that link to it.
+  - Bound previously unbounded local writes: undelivered verify failure notes, idle `verify/*.json` counters, and idle `ui-transcript-state/<session>.json` cursors (with their locks and crashed-hook temps) are swept after 7 days; live pane cursors and the session being synced are preserved.
+  - Set `DO_NOT_TRACK=1`, `HOMEBREW_NO_ANALYTICS=1`, `NEXT_TELEMETRY_DISABLED=1`, and `HF_HUB_DISABLE_TELEMETRY=1` for tools invoked by both installers (restoring the caller's values in PowerShell) and request no tracking from the Pi SDK bridge.
+  - Add tests: shipped source carries no telemetry/analytics packages or endpoints (PostHog, Sentry, Segment, Mixpanel, Amplitude, Datadog, Bugsnag, Google Analytics, OpenTelemetry, etc.), the README privacy section stays short while `PRIVACY.md` keeps the details, and the verify-counter, verify-note and UI-cursor sweeps.
 
 ## 0.4.1 - 2026-11-26
 

@@ -26,6 +26,11 @@ UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 _pinned_socket: str | None = None
 
+# Bounded lifetime for idle plugin-owned local state (verify notes/counters, UI cursors).
+LOCAL_DATA_MAX_AGE_SECONDS = 7 * 24 * 3600
+# Kept as the note-specific alias used by the verify and UI-notice paths.
+PENDING_NOTE_MAX_AGE_SECONDS = LOCAL_DATA_MAX_AGE_SECONDS
+
 
 def plugin_data_dir() -> Path:
     configured = os.environ.get("PLUGIN_DATA", "").strip()

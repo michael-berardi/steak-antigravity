@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -265,6 +265,67 @@ describe("steak-antigravity manifest & contracts", () => {
       for (const rx of forbidden) {
         assert.ok(!rx.test(content), `Provider-neutrality violation (${rx}) in ${file}`);
       }
+    }
+  });
+
+  it("ships no telemetry or analytics packages/endpoints", () => {
+    const forbidden = [
+      /\b(?:posthog-js|posthog-node|posthog-python|sentry-sdk|sentry-cli|mixpanel|amplitude-js|analytics-node|bugsnag-js|firebase-analytics|opentelemetry|open-telemetry|google-analytics|gtag)\b/i,
+      /@(?:sentry|opentelemetry|segment|posthog|datadog|bugsnag)\//i,
+      /(?:posthog\.com|sentry\.io|segment\.io|mixpanel\.com|amplitude\.com|datadoghq\.com|bugsnag\.com|google-analytics\.com|googletagmanager\.com|analytics\.googleapis\.com)/i,
+      /\btelemetry[-\s]?(?:exporter|sdk|endpoint)\b/i,
+    ];
+    const shipped = [];
+    for (const file of walk(ROOT)) {
+      const rel = file.slice(ROOT.length).split(sep);
+      if (rel[0] === "test" || rel[0] === "dist" || rel[0] === ".git") continue;
+      if (!/\.(?:mjs|py|sh|ps1|json)$/.test(file) && basename(file) !== "steak-antigravity") continue;
+      shipped.push(file);
+      const content = readFileSync(file, "utf8");
+      for (const rx of forbidden) {
+        assert.ok(!rx.test(content), `Telemetry/analytics reference (${rx}) in shipped file ${file}`);
+      }
+    }
+    assert.ok(shipped.length > 10, "shipped source scan unexpectedly empty");
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    assert.equal(pkg.dependencies, undefined, "package.json must not add runtime dependencies");
+    assert.equal(pkg.devDependencies, undefined, "package.json must not add telemetry-bearing dev dependencies");
+    assert.ok(!JSON.stringify(pkg).match(/posthog|sentry|segment|mixpanel|amplitude|datadog|bugsnag|analytics|opentelemetry/i), "package.json must stay telemetry-free");
+  });
+
+  it("keeps the README privacy section short and the details (incl. the daily update check) in PRIVACY.md", () => {
+    const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+    const sections = readme.split(/^## /m).filter((s) => /^Privacy\s*\n/.test(s));
+    assert.equal(sections.length, 1, "README.md must have exactly one ## Privacy section");
+    const lines = sections[0].split("\n").slice(1).map((l) => l.trim()).filter(Boolean);
+    assert.ok(lines.length >= 3 && lines.length <= 6, `README Privacy must be 3-6 non-empty lines, got ${lines.length}`);
+    const section = lines.join("\n");
+    assert.match(section, /No telemetry/);
+    assert.match(section, /daily/);
+    assert.match(section, /STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1/);
+    assert.match(section, /\(PRIVACY\.md\)/);
+
+    const privacy = readFileSync(join(ROOT, "PRIVACY.md"), "utf8");
+    for (const detail of [
+      "api.github.com/repos/<owner>/<repo>/releases/latest",
+      "at most once every 24 hours",
+      "STEAK_ANTIGRAVITY_NO_UPDATE_CHECK=1",
+      "\"checkAutomatically\": false",
+      "STEAK_ANTIGRAVITY_AUTO_RESUME=0",
+      "DO_NOT_TRACK=1",
+      "update-check.json",
+      "update.log",
+      ".previous",
+      "verify/<conversation>.pending.json",
+      "ui-transcript-state/<session>.json",
+      "pane-activity/<tmux-session>.json",
+      "usap-events/<pid>.jsonl",
+      "--uninstall",
+    ]) {
+      assert.ok(privacy.includes(detail), `PRIVACY.md must document ${detail}`);
+    }
+    for (const [name, text] of [["README.md", readme], ["PRIVACY.md", privacy]]) {
+      assert.doesNotMatch(text, /no (?:automatic )?update check|never contacts GitHub by itself|no outbound network call/i, `${name} must not deny the daily update check`);
     }
   });
 
