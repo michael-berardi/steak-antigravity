@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 - 2026-11-26
+
+- Add ToS-safe per-pane live subagent activity publishing for UltraTerm (`lib/pane_activity.py`, `scripts/antigravity_statusline.py`, `scripts/session_start.py`, `scripts/ui_transcript_sync.py`, `scripts/stop_hook.py`):
+  - Combines Antigravity CLI's official `statusLine` JSON (`subagents`, `task_count`, `agent_state`, foreground `conversation_id`) with official lifecycle hooks (`SessionStart`, `PreInvocation`, `PostToolUse`, `Stop`) to track live native `/swarm` workers and `invoke_subagent` children in real time — even while the coordinator is idle and `statusLine` does not re-fire.
+  - Writes a strictly non-PII, PID-bound per-pane snapshot (`schemaVersion`, `source`, `pid`, `capturedAt`, `activeSubagents`, `inactiveSubagents`, `taskCount`, `agentState`) atomically (`0600` inside `0700`, `O_NOFOLLOW`, owner-verified) to `~/.ultraterm/antigravity/panes/<tmux-session>.json` only inside verified UltraTerm tmux sessions.
+  - Reconciles `statusLine` and hook counts via `max` (never double-counting), decrements immediately on `Stop` or `swarm_wait`, prunes stale child leases after 10 minutes, resets on new `agy` PID or `/new` conversation switch, and persists zero PII (only 16-char SHA-256 conversation hashes in private plugin state).
+  - Add comprehensive unit tests (`test/test_pane_activity.py`).
+
 ## 0.4.0 - 2026-11-26
 
 - Add checksum-verified one-liner installers (`install.sh` for macOS/Linux POSIX `sh`, `install.ps1` for Windows PowerShell 5.1/7+):

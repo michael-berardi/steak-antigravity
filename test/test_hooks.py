@@ -305,7 +305,12 @@ class TestUiTranscriptSync(unittest.TestCase):
             )
             + "\n"
         )
-        env = {k: v for k, v in os.environ.items() if not k.startswith("ULTRATERM_UI_")}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith("ULTRATERM_") and k not in ("TMUX", "TMUX_PANE")
+        }
+        env["HOME"] = str(self.tmp)
         env["PLUGIN_DATA"] = str(self.data_dir)
         res = subprocess.run(
             [sys.executable, "-I", "-B", str(ROOT / "scripts/ui_transcript_sync.py"), "--event", "pre-invocation"],
@@ -842,7 +847,11 @@ class TestFinishGuardNativeSteps(unittest.TestCase):
             tp = self._write(td, "transcript_full.jsonl", [
                 {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "update_steps", "args": {"steps": [{"status": "pending", "title": "ship it"}]}}]},
             ])
-            env = {k: v for k, v in os.environ.items() if not k.startswith("ULTRATERM_UI_") and k != "STEAK_ANTIGRAVITY_FINISH_GUARD"}
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith("ULTRATERM_") and k not in ("TMUX", "TMUX_PANE", "STEAK_ANTIGRAVITY_FINISH_GUARD")
+            }
             env["HOME"] = str(Path(td) / "home")
 
             def run(extra: dict) -> dict:
@@ -866,7 +875,11 @@ class TestVerifyFailureReachesAgent(unittest.TestCase):
             (Path(td) / ".steak-pi").mkdir()
             (Path(td) / ".steak-pi" / "config.json").write_text(json.dumps({"verify": {"command": "echo BROKEN-BUILD; exit 1", "failLimit": 1}}))
             data = Path(td) / "pdata"
-            env = {k: v for k, v in os.environ.items() if not k.startswith("ULTRATERM_UI_")}
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith("ULTRATERM_") and k not in ("TMUX", "TMUX_PANE")
+            }
             env.update({"HOME": str(Path(td) / "home"), "PLUGIN_DATA": str(data), "STEAK_ANTIGRAVITY_ALLOW_VERIFY": "1"})
             payload = json.dumps({"cwd": td, "conversationId": "conv-v", "toolCall": {"name": "edit_file", "args": {"Path": f"{td}/a.py"}}})
             res = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_after_edit.py")], input=payload, text=True, capture_output=True, env=env, check=True)

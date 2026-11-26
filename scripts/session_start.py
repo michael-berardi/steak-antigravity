@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import auto_resume  # noqa: E402
+import pane_activity  # noqa: E402
 import ut_common  # noqa: E402
 import ui_transcript_sync  # noqa: E402
 
@@ -26,6 +27,10 @@ MAX_RULES_BYTES = 48_000
 
 def main() -> None:
     payload = ut_common.read_hook_stdin()
+    try:
+        pane_activity.record_hook_event("session-start", payload)
+    except Exception as exc:
+        sys.stderr.write(f"[steak-antigravity] pane activity update failed at session start: {exc}\n")
     cwd = str(payload.get("cwd") or os.getcwd())
     conv_id = str(payload.get("conversationId") or "")
     tp = payload.get("transcriptPath")

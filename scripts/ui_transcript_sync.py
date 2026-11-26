@@ -30,6 +30,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 import auto_resume  # noqa: E402
+import pane_activity  # noqa: E402
 import ut_common  # noqa: E402
 
 MAX_TEXT_CHUNK = 16_000
@@ -767,6 +768,10 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = ut_common.read_hook_stdin()
+    try:
+        pane_activity.record_hook_event(args.event, payload)
+    except Exception as exc:
+        sys.stderr.write(f"[steak-antigravity] pane activity update failed on {args.event}: {exc}\n")
     ui_file_env = os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE", "").strip()
     ui_session_env = os.environ.get("ULTRATERM_UI_SESSION_ID", "").strip()
     if ui_file_env and ui_session_env and publisher_is_pane_process():

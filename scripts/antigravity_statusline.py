@@ -40,6 +40,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 import ut_common  # noqa: E402
+import pane_activity  # noqa: E402
 
 MAX_STDIN_BYTES = 256 * 1024
 SCHEMA_VERSION = 1
@@ -168,6 +169,7 @@ def default_usage_path() -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default=None, help="Override snapshot output path (tests only)")
+    parser.add_argument("--pane-dir", default=None, help="Override per-pane activity dir (tests only)")
     args = parser.parse_args()
 
     try:
@@ -181,12 +183,26 @@ def main() -> int:
     except (ValueError, RecursionError):
         return 0
 
+    # 1. Write the quota usage snapshot FIRST so pane activity can never delay
+    #    or preempt quota updates under agy's 5s statusLine timeout.
     snapshot = build_snapshot(payload)
-    if snapshot is None:
-        return 0
+    if snapshot is not None:
+        target = Path(args.output) if args.output else default_usage_path()
+        write_snapshot(target, snapshot)
+        pane_activity.sweep_stale_temp_files(target.parent)
 
-    target = Path(args.output) if args.output else default_usage_path()
-    write_snapshot(target, snapshot)
+    # 2. Publish per-pane non-PII subagent/task activity (even when quota is
+    #    absent or still authenticating). Skip default $HOME writes during
+    #    --output tests unless --pane-dir is explicitly supplied.
+    if args.pane_dir or not args.output:
+        try:
+            pane_activity.record_statusline(
+                payload,
+                panes_dir=Path(args.pane_dir) if args.pane_dir else None,
+            )
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] pane activity publish failed: {exc}\n")
+
     return 0
 
 

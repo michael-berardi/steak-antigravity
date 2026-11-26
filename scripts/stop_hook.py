@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import auto_resume  # noqa: E402
+import pane_activity  # noqa: E402
 import ut_common  # noqa: E402
 import ui_transcript_sync  # noqa: E402
 
@@ -182,6 +183,10 @@ def count_open_todos(conversation_id: str, cwd: str = "") -> list[str]:
 
 def main() -> None:
     payload = ut_common.read_hook_stdin()
+    try:
+        pane_activity.record_hook_event("stop", payload)
+    except Exception as exc:
+        sys.stderr.write(f"[steak-antigravity] pane activity update failed at stop: {exc}\n")
     cwd = str(payload.get("cwd") or os.getcwd())
     conv_id = str(payload.get("conversationId") or "")
     tp = payload.get("transcriptPath")
