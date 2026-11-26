@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 sys.path.insert(0, str(ROOT / "scripts"))
+import auto_resume  # noqa: E402
 import ut_common  # noqa: E402
 import ui_transcript_sync  # noqa: E402
 
@@ -64,6 +65,15 @@ def main() -> None:
             pass
 
     identity = ut_common.terminal_identity()
+    if identity.get("terminalId"):
+        try:
+            auto_resume.cancel_for_terminal(
+                str(identity["terminalId"]),
+                reason="new_session",
+                exclude_conversation_id=conv_id,
+            )
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] auto-resume cancel failed at session start: {exc}\n")
     if identity.get("insideUltraTerm"):
         summary_parts = [
             f"slot={identity.get('slot')}",

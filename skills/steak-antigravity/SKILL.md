@@ -26,6 +26,13 @@ and `skills/`).
   Steak Pi's todo store and blocks premature stops while solvable items remain
   open, in that store or in your own latest `update_steps` plan. Mark steps
   `done` as you finish them.
+- **Quota auto-resume (`Stop` hook + single-shot waiter)**: Enabled by default
+  inside UltraTerm. On a confirmed quota-exhaustion `ERROR` stop, waits strictly
+  past the official server-reported reset time plus a `>= 60s` safety buffer
+  (default `65s` + `0..25s` jitter) before issuing one identity-bound `utp send`
+  resume. Automatically cancels on user interaction, `/new`, `USER_CANCELED`,
+  session exit, non-quota errors, or operator `HOLD`. Opt out with
+  `STEAK_ANTIGRAVITY_AUTO_RESUME=0` or `~/.steak-antigravity/config.json`.
 - **Verify-after-edit (`PostToolUse` hook)**: Runs `.steak-pi/config.json`
   `verify.command` after `write_file` / `edit_file` in trusted repos, debounced
   with bounded output and clean process-group reaping. A failure is shown to you
@@ -41,7 +48,8 @@ and `skills/`).
 ## Commands
 
 ```sh
-steak-antigravity doctor       # Verify plugin, USAP runtime, UTP, Retex, skills, UI Mode
+steak-antigravity doctor       # Verify plugin, USAP runtime, UTP, Retex, skills, UI Mode, auto-resume
+steak-antigravity auto-resume  # Show or cancel pending post-reset quota auto-resume timers
 steak-antigravity install      # Register steak-antigravity and shared skills in ~/.gemini/config
 steak-antigravity status       # Show current pane identity, active runtimes, and wiring
 ut-identity            # Print live UltraTerm tmux/terminal identity

@@ -13,6 +13,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
+import auto_resume  # noqa: E402
 import ut_common  # noqa: E402
 
 GEMINI_CONFIG = Path.home() / ".gemini/config"
@@ -276,6 +277,7 @@ def cmd_uninstall() -> int:
 
 
 def cmd_doctor() -> int:
+    identity = ut_common.terminal_identity()
     checks = {
         "version": version(),
         "pluginRoot": str(ROOT),
@@ -297,7 +299,8 @@ def cmd_doctor() -> int:
         "statusLineConfigured": statusline_configured(),
         "usageSnapshotPresent": (Path.home() / ".ultraterm/antigravity/usage.json").is_file(),
         "uiTranscriptEnv": bool(os.environ.get("ULTRATERM_UI_TRANSCRIPT_FILE")),
-        "identity": ut_common.terminal_identity(),
+        "autoResume": auto_resume.doctor_summary(identity=identity),
+        "identity": identity,
     }
     print(json.dumps(checks, indent=2))
     problems = []
@@ -314,6 +317,24 @@ def cmd_doctor() -> int:
     return 0 if ok and not problems else 1
 
 
+def cmd_auto_resume(args: list[str]) -> int:
+    sub = args[0] if args else "status"
+    if sub == "status":
+        print(json.dumps(auto_resume.doctor_summary(), indent=2))
+        return 0
+    if sub == "cancel":
+        if len(args) > 1 and args[1].strip():
+            conv_id = args[1].strip()
+            cancelled = auto_resume.cancel_for_conversation(conv_id, reason="operator_cancel", reset_attempts=True)
+            print(json.dumps({"cancelled": 1 if cancelled else 0, "conversationId": conv_id}, indent=2))
+            return 0
+        count = auto_resume.cancel_all(reason="operator_cancel")
+        print(json.dumps({"cancelled": count}, indent=2))
+        return 0
+    print("Usage: steak-antigravity auto-resume [status|cancel [conversationId]]", file=sys.stderr)
+    return 2
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd in ("-v", "--version", "version"):
@@ -325,10 +346,12 @@ def main() -> None:
         sys.exit(cmd_uninstall())
     if cmd in ("doctor", "status"):
         sys.exit(cmd_doctor())
+    if cmd == "auto-resume":
+        sys.exit(cmd_auto_resume(sys.argv[2:]))
     if cmd == "identity":
         print(json.dumps(ut_common.terminal_identity(), indent=2))
         sys.exit(0)
-    print("Usage: steak-antigravity <doctor|status|install|uninstall|identity|version>", file=sys.stderr)
+    print("Usage: steak-antigravity <doctor|status|auto-resume|install|uninstall|identity|version>", file=sys.stderr)
     sys.exit(2)
 
 

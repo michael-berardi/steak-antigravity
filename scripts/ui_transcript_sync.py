@@ -29,6 +29,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
+import auto_resume  # noqa: E402
 import ut_common  # noqa: E402
 
 MAX_TEXT_CHUNK = 16_000
@@ -693,8 +694,14 @@ def main() -> None:
             sys.stderr.write(f"[steak-antigravity] UI transcript sync failed: {exc}\n")
 
     if args.event == "pre-invocation":
+        conv_id = str(payload.get("conversationId") or "")
+        if conv_id:
+            try:
+                auto_resume.cancel_for_conversation(conv_id, reason="pre_invocation")
+            except Exception as exc:
+                sys.stderr.write(f"[steak-antigravity] auto-resume cancel failed on pre-invocation: {exc}\n")
         steps: list[dict] = []
-        for note in drain_verify_failures(conversation_id=str(payload.get("conversationId") or "")):
+        for note in drain_verify_failures(conversation_id=conv_id):
             steps.append({"systemMessage": {"systemMessage": note}})
         notices = drain_usap_notices()
         if steps and not notices:

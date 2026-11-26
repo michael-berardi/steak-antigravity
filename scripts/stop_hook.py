@@ -18,6 +18,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 sys.path.insert(0, str(ROOT / "scripts"))
+import auto_resume  # noqa: E402
 import ut_common  # noqa: E402
 import ui_transcript_sync  # noqa: E402
 
@@ -202,8 +203,34 @@ def main() -> None:
             sys.stderr.write(f"[steak-antigravity] UI transcript sync failed at stop: {exc}\n")
 
     reason = str(payload.get("terminationReason") or "")
+    reason_upper = reason.strip().upper()
+    if reason_upper == "ERROR":
+        try:
+            auto_resume.schedule_from_stop(
+                payload,
+                is_pane_process_fn=ui_transcript_sync.publisher_is_pane_process,
+            )
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] auto-resume scheduling failed: {exc}\n")
+        print("{}")
+        return
+
+    if reason_upper == "USER_CANCELED":
+        try:
+            auto_resume.cancel_for_conversation(conv_id, reason="user_canceled")
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] auto-resume cancel failed: {exc}\n")
+        print("{}")
+        return
+
+    if reason_upper == "NO_TOOL_CALL":
+        try:
+            auto_resume.on_turn_completed(conv_id)
+        except Exception as exc:
+            sys.stderr.write(f"[steak-antigravity] auto-resume cleanup failed: {exc}\n")
+
     if (
-        reason != "NO_TOOL_CALL"
+        reason_upper != "NO_TOOL_CALL"
         or payload.get("continuationActive")
         or os.environ.get("STEAK_ANTIGRAVITY_FINISH_GUARD") == "0"
     ):

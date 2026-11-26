@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 - 2026-11-25
+
+- Add ToS-safe default quota auto-resume (`lib/auto_resume.py`, `scripts/auto_resume_waiter.py`):
+  - Detects official quota-exhaustion reset signals on `Stop` (`terminationReason: ERROR`) by
+    parsing server-reported reset timestamps (`quota_resets` / ISO-8601) and durations
+    (`Resets in XhYmZs`), falling back to a fresh official `statusLine` snapshot
+    (`~/.ultraterm/antigravity/usage.json`) only when the error confirms quota exhaustion without
+    an inline timestamp.
+  - Strictly waits past the official reset time plus a mandatory safety buffer (`>= 60s`, default
+    `65s`) and small jitter (default `0..25s`) before issuing one identity-bound UltraTerm
+    `utp send --id <uuid> --expected-id <uuid>` resume — zero remote API polling, zero limit
+    evasion, no persistent daemons or LaunchAgents (one bounded single-shot waiter checking local
+    state/PID files every 30s).
+  - Cancels automatically on user interaction (`PreInvocation`, transcript growth, or Antigravity
+    CLI's built-in `conversations` skill local `ConversationService/GetConversation` API with
+    proxies and redirects disabled, optional via `STEAK_ANTIGRAVITY_AUTO_RESUME_CHECK_LS=0`),
+    `SessionStart` (`/new` in the same pane), `USER_CANCELED`, session exit, non-quota `ERROR`
+    stops, operator `HOLD`, weekly/excessive wait caps (default `6h`), or retry cap exhaustion
+    (default `3` consecutive attempts).
+  - Enabled by default with explicit opt-out via `STEAK_ANTIGRAVITY_AUTO_RESUME=0` or
+    `~/.steak-antigravity/config.json` (`{"autoResume": {"enabled": false}}`).
+- Surface `autoResume` config, transport readiness, and pending timers in `steak-antigravity doctor`
+  and add `steak-antigravity auto-resume [status|cancel [conversationId]]`.
+
 ## 0.1.5 - 2026-11-25
 
 - Finish guard now reads Antigravity's own plan (the latest `update_steps` call in the
