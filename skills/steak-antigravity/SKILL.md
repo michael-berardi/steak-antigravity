@@ -16,9 +16,16 @@ and `skills/`).
 
 ## Capabilities
 
-- **USAP delegation (`mcp_config.json`)**: Hosts Steak Pi's `ultraterm-subagents`
-  extension via stdio MCP (`ultraterm_subagents`, `ultraterm_hub`), honoring
-  `~/.config/ultraterm/routing.json` and active Pi/Steak Pi runtimes.
+- **USAP delegation & native `/swarm` coexistence (`mcp_config.json`, `hooks.json`)**:
+  Hosts Steak Pi's `ultraterm-subagents` extension via stdio MCP (`ultraterm_subagents`,
+  `ultraterm_hub`), honoring `~/.config/ultraterm/routing.json` and active Pi/Steak Pi
+  runtimes. Renders an enriched deterministic live Overview card when optional run/task
+  metadata is present (DAG dependencies, route-fallback hops, isolated worktree
+  branch/path, and active-task stall indicators) and delivers metadata-only `complete` /
+  `stall` / `route_hop` pointers on `PreInvocation` from completion subscriptions,
+  progress updates, and `tools/call` run snapshots. `delegation_guard.py` steers
+  `invoke_subagent` to USAP inside UltraTerm while leaving explicit Antigravity `/swarm`
+  tools (`swarm`, `post_message`, `read_board`, `swarm_wait`) completely unblocked.
 - **UTP & pane identity (`ut-identity`, `utp`)**: Resolves this pane's live
   tmux session and terminal UUID (`utp list`), checks inbox receipts, and sends
   verified peer messages (`utp message --to N --expected-id UUID "..."`).

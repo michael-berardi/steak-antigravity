@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0 - 2026-11-25
+
+- Zero-conflict native `/swarm` coexistence (`scripts/delegation_guard.py`, `rules/AGENTS.md`,
+  `skills/steak-antigravity/SKILL.md`):
+  - Reinforced the existing `hooks.json` `PreToolUse` `invoke_subagent` matcher with an explicit
+    tool-name check inside `scripts/delegation_guard.py` that allows native Antigravity `/swarm`
+    tools (`swarm`, `post_message`, `read_board`, `swarm_wait`) and safely treats non-object hook
+    inputs as `{}` without crashing, while continuing to steer `invoke_subagent` to USAP inside
+    UltraTerm.
+- Enriched deterministic live USAP Overview (`lib/usap-bridge.mjs`):
+  - Upgraded `formatRunView(run)` to gracefully render optional run/task metadata fields when
+    present (`dependsOn` / `awaitingDependencies`, `routeFallbacks` / `reviewFallback`,
+    `worktree` / `worktreeBranch` / `worktreePath`, `stalled` / `stalledTasks` / `lastProgressAt`
+    on active tasks) while leaving compact output unchanged when absent.
+- Structured metadata-only USAP event pointers (`lib/usap-bridge.mjs`,
+  `scripts/ui_transcript_sync.py`):
+  - Extended `usap-events/<pid>.jsonl` with strictly metadata-only
+    `{ kind: "complete" | "stall" | "route_hop", runIds, taskCount, doneCount, failedCount, at }`
+    records (never carrying untrusted worker output, errors, or free-form text), aligned run-ID
+    validation (`^[A-Za-z0-9._:-]{1,64}$`) across writer and reader, emitted `complete` events on
+    completion subscriptions and `stall` / `route_hop` events when observed on bridge progress
+    updates or `tools/call` run snapshots, and formatted per-run pointers on `PreInvocation`.
+
 ## 0.2.0 - 2026-11-25
 
 - Add ToS-safe default quota auto-resume (`lib/auto_resume.py`, `scripts/auto_resume_waiter.py`):

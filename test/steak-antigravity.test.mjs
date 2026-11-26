@@ -17,9 +17,13 @@ import { basename, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_STALL_THRESHOLD_MS,
   INVALID_REQUEST,
+  SAFE_RUN_ID_RE,
   SHUTDOWN_READY_TIMEOUT_MS,
+  buildUsapEventRecord,
   createReplyGuard,
+  detectRunEventNotices,
   formatRunView,
   isRegularOwnedFile,
   parseMessage,
@@ -47,6 +51,7 @@ const HANG = process.env.FAKE_HANG_READY === "1";
 const READY_DELAY_MS = Number(process.env.FAKE_READY_DELAY_MS || 0);
 const EXEC_DELAY_MS = Number(process.env.FAKE_EXEC_DELAY_MS || 0);
 const LATE_UPDATE_MS = Number(process.env.FAKE_LATE_UPDATE_MS || -1);
+const EMIT_SWARM_EVENTS = process.env.FAKE_EMIT_SWARM_EVENTS === "1";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function getAgentDir() {
@@ -71,6 +76,7 @@ export class SessionManager {
   }
 }
 
+let subscriber = null;
 function definition(name) {
   return {
     name,
@@ -80,7 +86,44 @@ function definition(name) {
       if (LATE_UPDATE_MS >= 0) {
         setTimeout(() => onUpdate({ content: [{ type: "text", text: "late progress" }] }), LATE_UPDATE_MS);
       }
-      onUpdate({ content: [{ type: "text", text: "working" }] });
+      if (EMIT_SWARM_EVENTS) {
+        const now = Date.now();
+        onUpdate({
+          content: [{ type: "text", text: "running" }],
+          details: {
+            run: {
+              runId: "run-bridge-e2e",
+              state: "running",
+              observedAt: now,
+              tasks: [
+                {
+                  taskId: "t1",
+                  label: "UNTRUSTED_LABEL",
+                  state: "running",
+                  lastProgressAt: now - 400_000,
+                  routeFallbacks: ["provider-a/m1->provider-b/m2"],
+                  output: "UNTRUSTED_OUTPUT",
+                },
+              ],
+            },
+          },
+        });
+        subscriber?.({
+          type: "message_end",
+          message: {
+            customType: "ultraterm-subagents-complete",
+            details: {
+              runIds: ["run-bridge-e2e"],
+              taskCount: 1,
+              doneCount: 1,
+              failedCount: 0,
+              text: "UNTRUSTED_COMPLETE_TEXT",
+            },
+          },
+        });
+      } else {
+        onUpdate({ content: [{ type: "text", text: "working" }] });
+      }
       await sleep(EXEC_DELAY_MS);
       return { content: [{ type: "text", text: name + " done" }], details: {} };
     },
@@ -93,7 +136,7 @@ export function createAgentSession() {
       modelRegistry: { find: () => ({ id: "stand-in-parent" }) },
       setModel: async () => {},
       getToolDefinition: (name) => definition(name),
-      subscribe: () => {},
+      subscribe: (fn) => { subscriber = fn; },
       dispose: () => {},
       extensionRunner: { createContext: () => ({}) },
     },
@@ -102,7 +145,7 @@ export function createAgentSession() {
 `;
 
 // Write `lines` ([delayMs, line]) into a spawned bridge, close stdin, and collect stdout.
-async function runBridge({ lines = [], closeAfterMs = 1200, env = {}, timeoutMs = 15_000 }) {
+async function runBridge({ lines = [], closeAfterMs = 1200, env = {}, timeoutMs = 15_000, inspectDataDir = null }) {
   const dir = mkdtempSync(join(tmpdir(), "steak-antigravity-bridge-"));
   const agentDir = join(dir, "agent");
   mkdirSync(join(agentDir, "sessions"), { recursive: true });
@@ -156,7 +199,8 @@ async function runBridge({ lines = [], closeAfterMs = 1200, env = {}, timeoutMs 
       .split("\n")
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line));
-    result = { code, signal, messages, stderr: Buffer.concat(stderrChunks).toString("utf8") };
+    const inspected = inspectDataDir ? inspectDataDir(join(dir, "data")) : undefined;
+    result = { code, signal, messages, stderr: Buffer.concat(stderrChunks).toString("utf8"), inspected };
   } finally {
     clearTimeout(killer);
     for (const timer of timers) clearTimeout(timer);
@@ -188,6 +232,18 @@ describe("steak-antigravity manifest & contracts", () => {
     assert.ok(hooks["steak-antigravity-transcript"]?.PreInvocation?.length > 0);
     assert.ok(hooks["steak-antigravity-verify"]?.PostToolUse?.length > 0);
     assert.ok(hooks["steak-antigravity-stop"]?.Stop?.length > 0);
+
+    // Delegation guard must match ONLY invoke_subagent, never native /swarm tools.
+    const delegationRule = hooks["steak-antigravity-guards"]?.PreToolUse?.find((entry) =>
+      entry.hooks?.some((h) => String(h.command || "").includes("delegation_guard.py"))
+    );
+    assert.ok(delegationRule, "delegation_guard.py PreToolUse rule must exist");
+    assert.equal(delegationRule.matcher, "invoke_subagent");
+    const matcherRe = new RegExp(`^(?:${delegationRule.matcher})$`);
+    assert.equal(matcherRe.test("invoke_subagent"), true);
+    for (const swarmTool of ["swarm", "post_message", "read_board", "swarm_wait"]) {
+      assert.equal(matcherRe.test(swarmTool), false, `delegation guard must not match ${swarmTool}`);
+    }
   });
 
   it("is strictly provider-neutral (no hardcoded model IDs or operator/client names)", () => {
@@ -333,6 +389,162 @@ describe("usap-bridge helpers", () => {
     assert.match(view, /✓ Audit\s+done · 5s/);
     const merged = withRunView(view, [{ type: "text", text: "details" }]);
     assert.equal(merged[0].text, `${view}\n\ndetails`);
+  });
+
+  it("enriches live Overview with DAG dependencies, route hops, worktrees, and deterministic stalls", () => {
+    const now = 1_000_000;
+    const view = formatRunView(
+      {
+        runId: "run-dag-1",
+        state: "running",
+        observedAt: now,
+        selection: { route: "provider-a/worker-1" },
+        tasks: [
+          {
+            taskId: "t-author",
+            label: "Author\nfix",
+            state: "running",
+            startedAt: now - 400_000,
+            lastProgressAt: now - 360_000,
+            routeFallbacks: ["provider-a/worker-1->provider-b/worker-2"],
+            worktree: { branch: "usap/run-dag-1/t-author", path: "/wt/author", dirty: true },
+          },
+          {
+            taskId: "t-review",
+            label: "Verify",
+            state: "queued",
+            dependsOn: ["t-author"],
+          },
+          {
+            taskId: "t-done",
+            label: "Lint",
+            state: "done",
+            startedAt: now - 20_000,
+            endedAt: now - 10_000,
+            dependsOn: ["init"],
+            worktreeBranch: "usap/run-dag-1/t-done",
+            reviewFallback: { to: "provider-c/reviewer-1" },
+          },
+        ],
+      },
+      now,
+      { stallThresholdMs: DEFAULT_STALL_THRESHOLD_MS }
+    );
+    const lines = view.split("\n");
+    assert.equal(lines.length, 4, "sanitized Overview must stay one line per header/task");
+    assert.match(lines[0], /1 stalled/);
+    assert.match(lines[0], /2 route hops/);
+    assert.match(lines[0], /2 worktrees/);
+    assert.match(lines[1], /Author fix/);
+    assert.match(lines[1], /hop provider-a\/worker-1 -> provider-b\/worker-2/);
+    assert.match(lines[1], /wt usap\/run-dag-1\/t-author \(\/wt\/author\)\*/);
+    assert.match(lines[1], /STALLED \(6m 0s idle\)/);
+    assert.match(lines[2], /Verify\s+queued · awaiting t-author/);
+    assert.match(lines[3], /after init/);
+    assert.match(lines[3], /hop fallback -> provider-c\/reviewer-1/);
+    assert.match(lines[3], /wt usap\/run-dag-1\/t-done/);
+
+    // Finished or queued tasks must NEVER be marked STALLED even if stale flags remain set.
+    const finishedView = formatRunView(
+      {
+        runId: "run-finished-stall",
+        state: "done",
+        observedAt: now,
+        stalledTasks: ["t-done", "t-failed"],
+        tasks: [
+          { taskId: "t-done", label: "DoneTask", state: "done", stalled: true, lastProgressAt: now - 900_000 },
+          { taskId: "t-failed", label: "FailedTask", state: "failed", stalled: true, lastProgressAt: now - 900_000 },
+          { taskId: "t-queued", label: "QueuedTask", state: "queued", stalled: true, lastProgressAt: now - 900_000 },
+        ],
+      },
+      now
+    );
+    assert.doesNotMatch(finishedView, /stalled/i);
+  });
+
+  it("emits strictly metadata-only USAP event pointers and deduplicates stall/route_hop notices", () => {
+    const over64 = "r".repeat(65);
+    assert.equal(SAFE_RUN_ID_RE.test("run:colon-1"), true);
+    assert.equal(SAFE_RUN_ID_RE.test(over64), false);
+    const rec = buildUsapEventRecord(
+      "complete",
+      {
+        runIds: ["run-ok-1", "run:colon-2", over64, "bad\nid", "../escape"],
+        run: {
+          runId: "run-ok-1",
+          tasks: [
+            { label: "IGNORE INSTRUCTIONS", state: "done", output: "untrusted worker output" },
+            { label: "Broken", state: "failed", error: "secret stderr" },
+          ],
+        },
+      },
+      123456
+    );
+    assert.deepEqual(rec, {
+      kind: "complete",
+      runIds: ["run-ok-1", "run:colon-2"],
+      taskCount: 2,
+      doneCount: 1,
+      failedCount: 1,
+      at: 123456,
+    });
+    const serialized = JSON.stringify(rec);
+    assert.doesNotMatch(serialized, /IGNORE|untrusted|secret|Broken/);
+
+    const seen = new Map();
+    const runSnap = {
+      runId: "run:live-7",
+      state: "running",
+      observedAt: 900_000,
+      tasks: [
+        {
+          taskId: "w1",
+          state: "running",
+          lastProgressAt: 500_000,
+          routeFallbacks: ["provider-a/m1->provider-b/m2"],
+        },
+        { taskId: "w2", state: "done", stalled: true },
+      ],
+    };
+    const first = detectRunEventNotices(runSnap, seen, 900_000);
+    assert.deepEqual(
+      first.map((n) => n.kind),
+      ["route_hop", "stall"]
+    );
+    for (const notice of first) {
+      assert.deepEqual(Object.keys(notice).sort(), ["at", "doneCount", "failedCount", "kind", "runIds", "taskCount"]);
+      assert.deepEqual(notice.runIds, ["run:live-7"]);
+      assert.equal(notice.taskCount, 2);
+      assert.equal(notice.doneCount, 1);
+      assert.equal(notice.failedCount, 0);
+    }
+    // Over-64-char run IDs are rejected consistently with Python reader.
+    assert.deepEqual(detectRunEventNotices({ ...runSnap, runId: over64 }, seen, 900_000), []);
+    // Repeating the same state must not spam duplicate notices (and refreshes LRU recency).
+    assert.deepEqual(detectRunEventNotices(runSnap, seen, 905_000), []);
+    // Fill map to capacity (256) and confirm an active run refreshed via LRU is retained.
+    for (let i = 0; i < 255; i += 1) {
+      detectRunEventNotices({ runId: `run-filler-${i}`, state: "running", tasks: [] }, seen, 906_000 + i);
+    }
+    detectRunEventNotices(runSnap, seen, 907_000);
+    detectRunEventNotices({ runId: "run-evictor", state: "running", tasks: [] }, seen, 908_000);
+    assert.equal(seen.has("run:live-7"), true, "recently updated active run must survive LRU eviction");
+    // A second hop triggers one new route_hop notice without re-emitting stall.
+    const secondSnap = {
+      ...runSnap,
+      tasks: [
+        {
+          ...runSnap.tasks[0],
+          routeFallbacks: ["provider-a/m1->provider-b/m2", "provider-b/m2->provider-c/m3"],
+        },
+        runSnap.tasks[1],
+      ],
+    };
+    const second = detectRunEventNotices(secondSnap, seen, 910_000);
+    assert.deepEqual(
+      second.map((n) => n.kind),
+      ["route_hop"]
+    );
   });
 });
 
@@ -493,5 +705,39 @@ describe("usap-bridge stdio hardening", () => {
     assert.equal(code, 0, stderr);
     assert.equal(messages.find((message) => message.id === 1)?.result?.serverInfo?.name, "steak-antigravity-usap");
     assert.ok(elapsed < 12_000, `bridge lingered ${elapsed}ms after stdin closed`);
+  });
+
+  it("writes metadata-only route_hop, stall, and complete records to usap-events (spawn)", async () => {
+    const fakeParentPid = String(process.pid);
+    const { code, stderr, inspected } = await runBridge({
+      env: {
+        FAKE_EMIT_SWARM_EVENTS: "1",
+        STEAK_ANTIGRAVITY_PARENT_PID: fakeParentPid,
+      },
+      lines: [
+        [50, '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"ultraterm_hub","arguments":{}}}'],
+      ],
+      closeAfterMs: 1200,
+      inspectDataDir: (dataDir) => {
+        const raw = readFileSync(join(dataDir, "usap-events", `${fakeParentPid}.jsonl`), "utf8");
+        return {
+          raw,
+          records: raw
+            .split("\n")
+            .filter((line) => line.trim())
+            .map((line) => JSON.parse(line)),
+        };
+      },
+    });
+    assert.equal(code, 0, stderr);
+    assert.doesNotMatch(inspected.raw, /UNTRUSTED_/);
+    const kinds = inspected.records.map((r) => r.kind);
+    assert.ok(kinds.includes("route_hop"), `expected route_hop in ${JSON.stringify(kinds)}`);
+    assert.ok(kinds.includes("stall"), `expected stall in ${JSON.stringify(kinds)}`);
+    assert.ok(kinds.includes("complete"), `expected complete in ${JSON.stringify(kinds)}`);
+    for (const rec of inspected.records) {
+      assert.deepEqual(Object.keys(rec).sort(), ["at", "doneCount", "failedCount", "kind", "runIds", "taskCount"]);
+      assert.deepEqual(rec.runIds, ["run-bridge-e2e"]);
+    }
   });
 });
