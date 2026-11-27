@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import auto_resume  # noqa: E402
+import coordinator_claims  # noqa: E402
 import pane_activity  # noqa: E402
 import ut_common  # noqa: E402
 import ui_transcript_sync  # noqa: E402
@@ -98,6 +99,14 @@ def main() -> None:
                 }
             }
         )
+
+    try:
+        active_claims = coordinator_claims.read_active_coordinator_claims(cwd=cwd)
+        banner = coordinator_claims.format_claims_banner(active_claims)
+        if banner:
+            inject_steps.append({"systemMessage": {"systemMessage": banner}})
+    except Exception as exc:
+        sys.stderr.write(f"[steak-antigravity] coordinator claims check failed at session start: {exc}\n")
 
     print(json.dumps({"injectSteps": inject_steps}))
 
